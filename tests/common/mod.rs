@@ -117,3 +117,13 @@ pub fn push_file_from_elsewhere(parent: &Path, name: &str, file: &str, content: 
     commit_file(&elsewhere, file, content);
     git(&elsewhere, &["push", "-q", "origin", "HEAD"]);
 }
+
+/// Marks a hook script executable. Git for Windows runs hooks whatever their mode.
+#[cfg(unix)]
+pub fn make_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(not(unix))]
+pub fn make_executable(_path: &Path) {}

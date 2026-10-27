@@ -3,7 +3,7 @@ mod common;
 use std::path::Path;
 use std::process::Command;
 
-use common::{clone_with_upstream, commit_file, git, push_file_from_elsewhere};
+use common::{clone_with_upstream, commit_file, git, make_executable, push_file_from_elsewhere};
 use just_fetch::fast_forward::{Outcome, fast_forward, plan};
 
 fn rev(clone: &Path, what: &str) -> String {
@@ -147,12 +147,3 @@ fn a_clone_whose_head_moved_after_planning_is_left_alone() {
 fn text(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap().replace("\r\n", "\n")
 }
-
-#[cfg(unix)]
-fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) {}
