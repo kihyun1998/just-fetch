@@ -4,7 +4,7 @@ use std::thread;
 
 use crate::git::{self, GitMissing};
 use crate::scan::FoundClone;
-use crate::status;
+use crate::status::{self, CloneStatus};
 
 /// What happened when just-fetch fetched a clone's upstream remote.
 #[derive(Debug)]
@@ -21,6 +21,29 @@ pub enum Fetch {
 pub struct Refreshed {
     pub clone: FoundClone,
     pub fetch: Fetch,
+}
+
+/// Why a clone's standing against its upstream is not known.
+#[derive(Debug, PartialEq, Eq)]
+pub enum NotFresh {
+    /// git could not read the clone.
+    Unreadable,
+    FetchFailed,
+}
+
+impl Refreshed {
+    /// How the clone stands against its upstream after this run's fetch.
+    pub fn fresh_status(&self) -> Result<CloneStatus, NotFresh> {
+        let state = self
+            .clone
+            .state
+            .as_ref()
+            .map_err(|_| NotFresh::Unreadable)?;
+        match self.fetch {
+            Fetch::Failed(_) => Err(NotFresh::FetchFailed),
+            Fetch::Skipped | Fetch::Fetched => Ok(state.clone_status()),
+        }
+    }
 }
 
 /// How many clones fetch at once.
