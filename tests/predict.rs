@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use common::{clone_with_upstream, commit_file, git, push_file_from_elsewhere};
-use just_fetch::predict::{Prediction, git_version, predict};
+use just_fetch::predict::{GitVersion, Prediction, git_version, predict};
 
 /// A clone of `name` diverged from its remote: one local commit and one pushed from
 /// elsewhere, both fetched.
@@ -119,7 +119,15 @@ fn a_git_older_than_the_minimum_cannot_predict() {
         ("README.md", "theirs\n"),
     );
 
-    match predict(&clone, Some((2, 37))).unwrap() {
+    match predict(
+        &clone,
+        Some(GitVersion {
+            major: 2,
+            minor: 37,
+        }),
+    )
+    .unwrap()
+    {
         Prediction::Unavailable(reason) => assert!(reason.contains("2.38"), "{reason}"),
         other => panic!("expected no prediction, got {other:?}"),
     }

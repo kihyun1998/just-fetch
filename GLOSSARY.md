@@ -12,6 +12,10 @@ _Avoid_: Repo (ambiguous with the GitHub-side repository), project
 The folder I point just-fetch at: either a clone itself, or a folder holding clones.
 _Avoid_: Workspace, base dir
 
+**Fast-forward**:
+Moving a clone's branch, picked by a person, up to the upstream commit seen when the list was made. Only a behind clone with nothing uncommitted can be fast-forwarded.
+_Avoid_: Pull, update
+
 ## Clone status
 
 **Up to date**:

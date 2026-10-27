@@ -1,6 +1,6 @@
 # Fast-forwarding
 
-How just-fetch moves the clones a person picks up to their upstream: `pull::pullable` decides who may be offered, `prompt::offer_fast_forward` asks, and `pull::fast_forward` does it. This is the only step that changes a working tree.
+How just-fetch moves the clones a person picks up to their upstream: `fast_forward::offerable` decides who may be offered, `prompt::offer_fast_forward` asks, and `fast_forward::fast_forward` does it. This is the only step that changes a working tree.
 
 ## Who is offered
 
@@ -20,7 +20,7 @@ What no test sees is how Windows Terminal itself paints the prompt.
 
 ## The call
 
-Before asking, `pull::plan` reads each candidate's HEAD and upstream commit (`git::head_and_upstream`, which prediction uses too). After a person picks, `pull::fast_forward` reads the clone's status again and does nothing (`skipped: …`) if it has turned dirty or its HEAD has moved since the list was made: a person can sit at the prompt for minutes, and `--ff-only` alone lets a dirty tree through when the incoming commits do not touch the edited files (measured). Then `git merge --ff-only --quiet <the planned upstream commit>`, through `git::run_with_clone_hooks`.
+Before asking, `fast_forward::plan` reads each candidate's HEAD and upstream commit (`git::head_and_upstream`, which prediction uses too). After a person picks, `fast_forward::fast_forward` reads the clone's status again and does nothing (`skipped: …`) if it has turned dirty or its HEAD has moved since the list was made: a person can sit at the prompt for minutes, and `--ff-only` alone lets a dirty tree through when the incoming commits do not touch the edited files (measured). Then `git merge --ff-only --quiet <the planned upstream commit>`, through `git::run_with_clone_hooks`.
 
 - **Merge, not pull.** `git pull` fetches again, so it can bring commits the table never showed. Merging the planned upstream commit applies exactly the commits shown as "behind N", even if the upstream moves while the prompt is open. Chosen by the maintainer.
 - **The clone's own hooks run**: `post-merge`, `post-checkout`, whatever the clone has. Unlike the same command typed in the clone, stdin is empty, output is captured, fsmonitor is off and git does not prompt. A person picked this clone and asked for this change. That is the same reason auth settings are left alone in [fetching-clones](fetching-clones.md). Chosen by the maintainer. The automatic steps (status, fetch, prediction) still run with hooks off.

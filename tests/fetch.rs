@@ -15,9 +15,9 @@ fn refresh(root: &Path) -> Vec<Refreshed> {
 fn status_of<'a>(refreshed: &'a [Refreshed], name: &str) -> (CloneStatus, &'a Fetch) {
     let r = refreshed
         .iter()
-        .find(|r| r.clone.name == name)
+        .find(|r| r.found.name == name)
         .unwrap_or_else(|| panic!("no clone named {name}"));
-    (r.clone.state.as_ref().unwrap().clone_status(), &r.fetch)
+    (r.found.state.as_ref().unwrap().clone_status(), &r.fetch)
 }
 
 #[test]
@@ -152,8 +152,8 @@ fn an_upstream_on_another_remote_is_fetched_from_that_remote() {
 
     let refreshed = refresh(root);
 
-    let r = refreshed.iter().find(|r| r.clone.name == "repo").unwrap();
-    let state = r.clone.state.as_ref().unwrap();
+    let r = refreshed.iter().find(|r| r.found.name == "repo").unwrap();
+    let state = r.found.state.as_ref().unwrap();
     assert_eq!(state.upstream.as_deref(), Some("fork/main"));
     assert_eq!(state.clone_status(), CloneStatus::Behind(1));
     let origin_main = std::process::Command::new("git")

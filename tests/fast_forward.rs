@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use common::{clone_with_upstream, commit_file, git, push_file_from_elsewhere};
-use just_fetch::pull::{Pulled, fast_forward, plan};
+use just_fetch::fast_forward::{Outcome, fast_forward, plan};
 
 fn rev(clone: &Path, what: &str) -> String {
     let out = Command::new("git")
@@ -31,7 +31,7 @@ fn a_behind_clone_is_fast_forwarded_to_its_upstream() {
 
     let pulled = fast_forward(&clone, &plan(&clone).unwrap()).unwrap();
 
-    assert!(matches!(pulled, Pulled::Updated), "{pulled:?}");
+    assert!(matches!(pulled, Outcome::Updated), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), rev(&clone, "@{upstream}"));
     assert_eq!(text(&clone.join("theirs.txt")), "theirs\n");
 }
@@ -47,7 +47,7 @@ fn a_diverged_clone_is_refused_and_left_as_it_was() {
     let pulled = fast_forward(&clone, &plan(&clone).unwrap()).unwrap();
 
     match pulled {
-        Pulled::Failed(message) => assert!(!message.is_empty()),
+        Outcome::Failed(message) => assert!(!message.is_empty()),
         other => panic!("expected a refusal, got {other:?}"),
     }
     assert_eq!(rev(&clone, "HEAD"), head);
@@ -62,7 +62,7 @@ fn an_untracked_file_in_the_way_is_refused_and_kept() {
 
     let pulled = fast_forward(&clone, &plan(&clone).unwrap()).unwrap();
 
-    assert!(matches!(pulled, Pulled::Failed(_)), "{pulled:?}");
+    assert!(matches!(pulled, Outcome::Failed(_)), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), head);
     assert_eq!(text(&clone.join("theirs.txt")), "my own notes\n");
 }
@@ -86,7 +86,7 @@ fn the_clone_s_own_post_merge_hook_runs() {
 
     let pulled = fast_forward(&clone, &plan(&clone).unwrap()).unwrap();
 
-    assert!(matches!(pulled, Pulled::Updated), "{pulled:?}");
+    assert!(matches!(pulled, Outcome::Updated), "{pulled:?}");
     assert!(marker.exists(), "the clone's post-merge hook did not run");
 }
 
@@ -102,7 +102,7 @@ fn only_the_commits_seen_when_planning_are_applied() {
 
     let pulled = fast_forward(&clone, &planned).unwrap();
 
-    assert!(matches!(pulled, Pulled::Updated), "{pulled:?}");
+    assert!(matches!(pulled, Outcome::Updated), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), seen);
     assert!(!clone.join("later.txt").exists());
 }
@@ -121,7 +121,7 @@ fn a_clone_that_turned_dirty_after_planning_is_left_alone() {
 
     let pulled = fast_forward(&clone, &planned).unwrap();
 
-    assert!(matches!(pulled, Pulled::Changed(_)), "{pulled:?}");
+    assert!(matches!(pulled, Outcome::Changed(_)), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), head);
 }
 
@@ -138,7 +138,7 @@ fn a_clone_whose_head_moved_after_planning_is_left_alone() {
 
     let pulled = fast_forward(&clone, &planned).unwrap();
 
-    assert!(matches!(pulled, Pulled::Changed(_)), "{pulled:?}");
+    assert!(matches!(pulled, Outcome::Changed(_)), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), head);
 }
 
