@@ -90,3 +90,30 @@ pub fn push_from_elsewhere(parent: &Path, name: &str, branch: &str) {
     commit(&elsewhere, "from elsewhere");
     git(&elsewhere, &["push", "-q", "origin", branch]);
 }
+
+/// Writes `content` to `file` and commits it.
+pub fn commit_file(clone: &Path, file: &str, content: &str) {
+    std::fs::write(clone.join(file), content).unwrap();
+    git(clone, &["add", file]);
+    git(clone, &["commit", "-q", "-m", &format!("change {file}")]);
+}
+
+/// Like `push_from_elsewhere`, with the commit changing `file` to `content`.
+pub fn push_file_from_elsewhere(parent: &Path, name: &str, file: &str, content: &str) {
+    let elsewhere = parent.join(format!(".elsewhere/{name}"));
+    if !elsewhere.exists() {
+        std::fs::create_dir_all(parent.join(".elsewhere")).unwrap();
+        git(
+            &parent.join(".elsewhere"),
+            &[
+                "clone",
+                "-q",
+                remote_of(parent, name).to_str().unwrap(),
+                name,
+            ],
+        );
+    }
+    git(&elsewhere, &["pull", "-q", "--ff-only"]);
+    commit_file(&elsewhere, file, content);
+    git(&elsewhere, &["push", "-q", "origin", "HEAD"]);
+}

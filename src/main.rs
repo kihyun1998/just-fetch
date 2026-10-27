@@ -4,6 +4,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use just_fetch::fetch::{Fetch, Refreshed, fetch_all};
 use just_fetch::git::GitMissing;
+use just_fetch::predict::{Prediction, git_version, predict};
 use just_fetch::scan::{ScanError, scan};
 use just_fetch::status::{CloneStatus, Head, LocalState};
 
@@ -37,10 +38,34 @@ fn run(root: &Path) -> Result<String, String> {
         ScanError::GitMissing => GIT_MISSING.to_string(),
     })?;
     let refreshed = fetch_all(found).map_err(|GitMissing| GIT_MISSING.to_string())?;
-    Ok(render(&refreshed))
+    let predictions = predict_diverged(&refreshed).map_err(|GitMissing| GIT_MISSING.to_string())?;
+    Ok(render(&refreshed, &predictions))
 }
 
-fn render(refreshed: &[Refreshed]) -> String {
+/// A prediction for each diverged clone, `None` for the rest.
+fn predict_diverged(refreshed: &[Refreshed]) -> Result<Vec<Option<Prediction>>, GitMissing> {
+    let is_diverged = |r: &Refreshed| {
+        matches!(&r.clone.state, Ok(state) if matches!(state.clone_status(), CloneStatus::Diverged { .. }))
+            && !matches!(r.fetch, Fetch::Failed(_))
+    };
+    let version = if refreshed.iter().any(is_diverged) {
+        git_version()?
+    } else {
+        None
+    };
+    refreshed
+        .iter()
+        .map(|r| {
+            if is_diverged(r) {
+                predict(&r.clone.path, version).map(Some)
+            } else {
+                Ok(None)
+            }
+        })
+        .collect()
+}
+
+fn render(refreshed: &[Refreshed], predictions: &[Option<Prediction>]) -> String {
     let width = refreshed
         .iter()
         .map(|r| r.clone.name.chars().count())
@@ -48,9 +73,10 @@ fn render(refreshed: &[Refreshed]) -> String {
         .unwrap_or(0);
     refreshed
         .iter()
-        .map(|r| {
+        .zip(predictions)
+        .map(|(r, prediction)| {
             let detail = match &r.clone.state {
-                Ok(state) => describe(state, &r.fetch),
+                Ok(state) => describe(state, &r.fetch, prediction.as_ref()),
                 Err(message) => format!("error: {}", one_line(message)),
             };
             format!("{:<width$}  {detail}\n", r.clone.name)
@@ -58,7 +84,7 @@ fn render(refreshed: &[Refreshed]) -> String {
         .collect()
 }
 
-fn describe(state: &LocalState, fetch: &Fetch) -> String {
+fn describe(state: &LocalState, fetch: &Fetch, prediction: Option<&Prediction>) -> String {
     let head = match &state.head {
         Head::Branch(name) => name.clone(),
         Head::Unborn(name) => format!("{name} (no commits)"),
@@ -72,6 +98,7 @@ fn describe(state: &LocalState, fetch: &Fetch) -> String {
         Fetch::Failed(message) => parts.push(format!("fetch failed: {}", one_line(message))),
         Fetch::Skipped | Fetch::Fetched => parts.extend(standing(&state.clone_status())),
     }
+    parts.extend(prediction.map(foretell));
     if state.dirty {
         parts.push("dirty".to_string());
     }
@@ -102,4 +129,27 @@ fn one_line(message: &str) -> String {
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+/// How many conflicted files a row names before counting the rest.
+const CONFLICTS_SHOWN: usize = 5;
+
+fn foretell(prediction: &Prediction) -> String {
+    match prediction {
+        Prediction::Clean => "merges cleanly".to_string(),
+        Prediction::Conflicts(files) => {
+            let shown = files[..files.len().min(CONFLICTS_SHOWN)]
+                .iter()
+                .map(|name| name.replace('\n', "\\n"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            match files.len().saturating_sub(CONFLICTS_SHOWN) {
+                0 => format!("conflict: {shown}"),
+                more => format!("conflict: {shown} (+{more} more)"),
+            }
+        }
+        Prediction::Unavailable(reason) => {
+            format!("conflict check unavailable: {}", one_line(reason))
+        }
+    }
 }
