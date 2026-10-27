@@ -21,8 +21,13 @@ struct Terminal {
     child: Box<dyn Child + Send + Sync>,
     writer: Box<dyn Write + Send>,
     shown: Arc<Mutex<Vec<u8>>>,
+    /// Cursor-position queries already answered.
+    answered: usize,
     _master: Box<dyn MasterPty + Send>,
 }
+
+/// The cursor-position query ConPTY sends when it starts, and waits on until it is answered.
+const CURSOR_QUERY: &str = "\x1b[6n";
 
 impl Terminal {
     fn spawn(mut command: CommandBuilder) -> Self {
@@ -54,7 +59,17 @@ impl Terminal {
             child,
             writer,
             shown,
+            answered: 0,
             _master: pair.master,
+        }
+    }
+
+    /// Answers each new cursor-position query the way a terminal would, from the top left.
+    fn answer_queries(&mut self) {
+        let asked = self.text().matches(CURSOR_QUERY).count();
+        while self.answered < asked {
+            self.press("\x1b[1;1R");
+            self.answered += 1;
         }
     }
 
@@ -63,9 +78,10 @@ impl Terminal {
     }
 
     /// Waits until the screen, read as [`plain`], contains `needle`.
-    fn wait_for(&self, needle: &str) {
+    fn wait_for(&mut self, needle: &str) {
         let deadline = Instant::now() + TIMEOUT;
         while !plain(&self.text()).contains(needle) {
+            self.answer_queries();
             assert!(
                 Instant::now() < deadline,
                 "never showed {needle:?}:\n{}",
@@ -84,6 +100,7 @@ impl Terminal {
     fn finish(mut self) -> String {
         let deadline = Instant::now() + TIMEOUT;
         while self.child.try_wait().unwrap().is_none() {
+            self.answer_queries();
             assert!(Instant::now() < deadline, "did not exit:\n{}", self.text());
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -136,7 +153,7 @@ fn plain(text: &str) -> String {
 fn open(root: &Path) -> Terminal {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_just-fetch"));
     command.arg(root);
-    let terminal = Terminal::spawn(command);
+    let mut terminal = Terminal::spawn(command);
     terminal.wait_for("fast-forward");
     terminal.wait_for("betabehind1");
     terminal
