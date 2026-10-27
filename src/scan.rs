@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -16,8 +17,27 @@ pub struct FoundClone {
 pub enum ScanError {
     /// The scan root does not exist, is not a folder, or cannot be listed.
     Unreadable(PathBuf, io::Error),
-    GitMissing,
+    GitMissing(GitMissing),
 }
+
+impl From<GitMissing> for ScanError {
+    fn from(missing: GitMissing) -> Self {
+        ScanError::GitMissing(missing)
+    }
+}
+
+impl fmt::Display for ScanError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScanError::Unreadable(path, error) => {
+                write!(f, "cannot read {}: {error}", path.display())
+            }
+            ScanError::GitMissing(missing) => missing.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for ScanError {}
 
 /// Lists the clone at `root`, or the clones directly under it, in name order.
 pub fn scan(root: &Path) -> Result<Vec<FoundClone>, ScanError> {
@@ -35,7 +55,7 @@ pub fn scan(root: &Path) -> Result<Vec<FoundClone>, ScanError> {
     clones
         .into_iter()
         .map(|path| {
-            let state = local_state(&path).map_err(|GitMissing| ScanError::GitMissing)?;
+            let state = git::split_missing(status::read(&path))?;
             Ok(FoundClone {
                 name: display_name(&path),
                 path,
@@ -56,17 +76,4 @@ fn display_name(path: &Path) -> String {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
-}
-
-pub(crate) fn local_state(path: &Path) -> Result<Result<LocalState, String>, GitMissing> {
-    let porcelain = git::run(
-        path,
-        &[
-            "status",
-            "--porcelain=v2",
-            "--branch",
-            "--untracked-files=all",
-        ],
-    )?;
-    Ok(porcelain.map(|out| status::parse(&out)))
 }

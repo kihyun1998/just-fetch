@@ -1,13 +1,14 @@
+use std::error::Error;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
 use just_fetch::fetch::{Fetch, Refreshed, fetch_all};
-use just_fetch::git::GitMissing;
+use just_fetch::git::{self, GitMissing};
 use just_fetch::predict::{Prediction, git_version, predict};
 use just_fetch::pull::{Planned, Pulled, fast_forward, plan, pullable};
-use just_fetch::scan::{ScanError, scan};
+use just_fetch::scan::scan;
 use just_fetch::status::{CloneStatus, Head, LocalState};
 
 /// Fetches the clones under a folder and shows how each stands against its upstream.
@@ -30,31 +31,26 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(root: &Path) -> Result<(), String> {
-    const GIT_MISSING: &str = "git was not found on PATH";
-    let found = scan(root).map_err(|e| match e {
-        ScanError::Unreadable(path, error) => format!("cannot read {}: {error}", path.display()),
-        ScanError::GitMissing => GIT_MISSING.to_string(),
-    })?;
-    let refreshed = fetch_all(found).map_err(|GitMissing| GIT_MISSING.to_string())?;
-    let predictions = predict_diverged(&refreshed).map_err(|GitMissing| GIT_MISSING.to_string())?;
+fn run(root: &Path) -> Result<(), Box<dyn Error>> {
+    let found = scan(root)?;
+    let refreshed = fetch_all(found)?;
+    let predictions = predict_diverged(&refreshed)?;
     print!("{}", render(&refreshed, &predictions));
     offer_fast_forward(&refreshed)
 }
 
 /// Asks which pullable clones to fast-forward, then does it. Asks only when stdin, stdout
 /// and stderr are all terminals, so piped or scripted runs change nothing.
-fn offer_fast_forward(refreshed: &[Refreshed]) -> Result<(), String> {
+fn offer_fast_forward(refreshed: &[Refreshed]) -> Result<(), Box<dyn Error>> {
     let at_terminal = std::io::stdin().is_terminal()
         && std::io::stdout().is_terminal()
         && std::io::stderr().is_terminal();
     if !at_terminal {
         return Ok(());
     }
-    let git_missing = |GitMissing| "git was not found on PATH".to_string();
     let mut candidates: Vec<(&Refreshed, Planned)> = Vec::new();
     for r in refreshed.iter().filter(|r| pullable(r).is_ok()) {
-        if let Ok(planned) = plan(&r.clone.path).map_err(git_missing)? {
+        if let Ok(planned) = git::split_missing(plan(&r.clone.path))? {
             candidates.push((r, planned));
         }
     }
@@ -77,12 +73,12 @@ fn offer_fast_forward(refreshed: &[Refreshed]) -> Result<(), String> {
     let picked = match picked {
         Ok(Some(picked)) => picked,
         Ok(None) => return Ok(()),
-        Err(e) => return Err(format!("the prompt failed: {e}")),
+        Err(e) => return Err(format!("the prompt failed: {e}").into()),
     };
     for i in picked {
         let (r, planned) = &candidates[i];
         let name = &r.clone.name;
-        match fast_forward(&r.clone.path, planned).map_err(git_missing)? {
+        match fast_forward(&r.clone.path, planned)? {
             Pulled::Updated => println!("{name}: updated"),
             Pulled::Changed(what) => println!("{name}: skipped: {what} since the list was made"),
             Pulled::Failed(message) => println!("{name}: failed: {}", one_line(&message)),

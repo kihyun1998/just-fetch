@@ -29,7 +29,7 @@ fn a_behind_clone_is_fast_forwarded_to_its_upstream() {
     let clone = behind(tmp.path(), "repo");
     assert_ne!(rev(&clone, "HEAD"), rev(&clone, "@{upstream}"));
 
-    let pulled = fast_forward(&clone, &plan(&clone).unwrap().unwrap()).unwrap();
+    let pulled = fast_forward(&clone, &plan(&clone).unwrap()).unwrap();
 
     assert!(matches!(pulled, Pulled::Updated), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), rev(&clone, "@{upstream}"));
@@ -44,7 +44,7 @@ fn a_diverged_clone_is_refused_and_left_as_it_was() {
     commit_file(&clone, "mine.txt", "mine\n");
     let head = rev(&clone, "HEAD");
 
-    let pulled = fast_forward(&clone, &plan(&clone).unwrap().unwrap()).unwrap();
+    let pulled = fast_forward(&clone, &plan(&clone).unwrap()).unwrap();
 
     match pulled {
         Pulled::Failed(message) => assert!(!message.is_empty()),
@@ -60,7 +60,7 @@ fn an_untracked_file_in_the_way_is_refused_and_kept() {
     std::fs::write(clone.join("theirs.txt"), "my own notes\n").unwrap();
     let head = rev(&clone, "HEAD");
 
-    let pulled = fast_forward(&clone, &plan(&clone).unwrap().unwrap()).unwrap();
+    let pulled = fast_forward(&clone, &plan(&clone).unwrap()).unwrap();
 
     assert!(matches!(pulled, Pulled::Failed(_)), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), head);
@@ -84,7 +84,7 @@ fn the_clone_s_own_post_merge_hook_runs() {
         &["config", "core.hooksPath", hooks.to_str().unwrap()],
     );
 
-    let pulled = fast_forward(&clone, &plan(&clone).unwrap().unwrap()).unwrap();
+    let pulled = fast_forward(&clone, &plan(&clone).unwrap()).unwrap();
 
     assert!(matches!(pulled, Pulled::Updated), "{pulled:?}");
     assert!(marker.exists(), "the clone's post-merge hook did not run");
@@ -95,7 +95,7 @@ fn only_the_commits_seen_when_planning_are_applied() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     let clone = behind(root, "repo");
-    let planned = plan(&clone).unwrap().unwrap();
+    let planned = plan(&clone).unwrap();
     let seen = rev(&clone, "@{upstream}");
     push_file_from_elsewhere(root, "repo", "later.txt", "later\n");
     git(&clone, &["fetch", "-q"]);
@@ -111,7 +111,7 @@ fn only_the_commits_seen_when_planning_are_applied() {
 fn a_clone_that_turned_dirty_after_planning_is_left_alone() {
     let tmp = tempfile::tempdir().unwrap();
     let clone = behind(tmp.path(), "repo");
-    let planned = plan(&clone).unwrap().unwrap();
+    let planned = plan(&clone).unwrap();
     std::fs::write(
         clone.join("README.md"),
         "edited while the prompt was open\n",
@@ -129,7 +129,7 @@ fn a_clone_that_turned_dirty_after_planning_is_left_alone() {
 fn a_clone_whose_head_moved_after_planning_is_left_alone() {
     let tmp = tempfile::tempdir().unwrap();
     let clone = behind(tmp.path(), "repo");
-    let planned = plan(&clone).unwrap().unwrap();
+    let planned = plan(&clone).unwrap();
     commit_file(&clone, "mine.txt", "mine\n");
     git(&clone, &["reset", "-q", "--hard", "HEAD~1"]);
     git(&clone, &["switch", "-q", "-c", "elsewhere"]);

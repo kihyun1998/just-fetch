@@ -3,7 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
 use crate::git::{self, GitMissing};
-use crate::scan::{self, FoundClone};
+use crate::scan::FoundClone;
+use crate::status;
 
 /// What happened when just-fetch fetched a clone's upstream remote.
 #[derive(Debug)]
@@ -61,10 +62,10 @@ fn refresh(mut clone: FoundClone) -> Result<Refreshed, GitMissing> {
             fetch: Fetch::Skipped,
         });
     }
-    let fetch = match git::run(&clone.path, &["fetch", "--prune", "--quiet"])? {
+    let fetch = match git::split_missing(git::run(&clone.path, &["fetch", "--prune", "--quiet"]))? {
         Ok(_) => Fetch::Fetched,
         Err(message) => Fetch::Failed(message),
     };
-    clone.state = scan::local_state(&clone.path)?;
+    clone.state = git::split_missing(status::read(&clone.path))?;
     Ok(Refreshed { clone, fetch })
 }
