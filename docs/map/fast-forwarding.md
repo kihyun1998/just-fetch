@@ -10,7 +10,13 @@ A clone that is Behind and not Dirty. Untracked files alone do not block it: git
 
 A `dialoguer` multi-select with nothing picked to start with. Space picks, enter confirms, esc leaves. Leaving, or confirming with nothing picked, changes nothing. The prompt appears only when stdin, stdout and stderr are all terminals, so a piped or scripted run, `just-fetch | less` included, prints the table and changes nothing, with nothing on stderr either. A prompt that fails to start ends the run with an error rather than a silent success.
 
-The prompt is tested through a pseudo-terminal with `rexpect`, Unix only. Each key is flushed after it is sent; without the flush the keys never reached the prompt. On Windows no test drives it.
+The prompt is tested through a pseudo-terminal with `portable-pty`. That is a Unix pty on macOS and ConPTY on Windows, the console layer Windows Terminal hosts. CI runs the tests on macos-latest, windows-latest and windows-11-arm. Three things about ConPTY shaped the harness, each seen failing on CI first:
+
+- **The child must be attached to the pseudo-console explicitly.** expectrl's `conpty` backend starts the child without `STARTF_USESTDHANDLES`. Under a test runner whose stdout is redirected, the child then wrote its table to the runner's output and was never a terminal. `portable-pty` sets the flag with invalid handles.
+- **ConPTY asks where the cursor is (`ESC[6n`) and holds the child's output until it is answered.** A real terminal answers by itself. The harness answers `ESC[1;1R`.
+- **ConPTY may redraw a run of spaces as a cursor move**, so screen text is compared with escape sequences and whitespace stripped. For the same reason, the harness waits for the process to exit, then for the output to settle, rather than for end-of-file.
+
+What no test sees is how Windows Terminal itself paints the prompt.
 
 ## The call
 
