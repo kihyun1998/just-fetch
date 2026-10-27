@@ -28,7 +28,8 @@ struct Prompt {
 impl Prompt {
     fn open(root: &Path) -> Self {
         let mut command = Command::new(env!("CARGO_BIN_EXE_just-fetch"));
-        command.arg(root).env("TERM", "xterm-256color");
+        command.arg(root);
+        with_whole_environment(&mut command);
         let mut session = Session::spawn(command).unwrap();
         session.set_expect_timeout(Some(TIMEOUT));
         let mut shown = String::new();
@@ -51,12 +52,26 @@ impl Prompt {
     }
 }
 
-/// Reads `session` until its process exits. Waiting for end-of-file is not enough: ConPTY
-/// can keep its output open after the child is gone.
+/// Sets every variable of this process on `command`, then `TERM`. ConPTY gives the child
+/// only the variables set on the command once any is set, so `TERM` alone would leave it
+/// without `PATH`.
+fn with_whole_environment(command: &mut Command) {
+    command
+        .envs(std::env::vars_os())
+        .env("TERM", "xterm-256color");
+}
+
+/// How long the output must stay quiet after the process exits before it counts as read.
+const SETTLE: Duration = Duration::from_secs(1);
+
+/// Reads `session` until its process exits and its output settles. Waiting for end-of-file
+/// is not enough: ConPTY can keep its output open after the child is gone, and can still be
+/// delivering what the child wrote.
 fn drain_until_exit(mut session: OsSession) -> String {
     let deadline = Instant::now() + TIMEOUT;
     let mut out = Vec::new();
     let mut buf = [0u8; 4096];
+    let mut exited_quiet_since: Option<Instant> = None;
     loop {
         assert!(
             Instant::now() < deadline,
@@ -67,19 +82,17 @@ fn drain_until_exit(mut session: OsSession) -> String {
             Ok(0) => {}
             Ok(n) => {
                 out.extend_from_slice(&buf[..n]);
+                exited_quiet_since = None;
                 continue;
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {}
             Err(_) => break,
         }
         if !session.get_process().is_alive().unwrap_or(false) {
-            while let Ok(n) = session.try_read(&mut buf) {
-                if n == 0 {
-                    break;
-                }
-                out.extend_from_slice(&buf[..n]);
+            let since = *exited_quiet_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= SETTLE {
+                break;
             }
-            break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -218,14 +231,12 @@ fn with_output_piped_away_nothing_is_offered_or_pulled() {
 #[cfg(unix)]
 fn piped(root: &Path) -> Command {
     let mut command = Command::new("sh");
-    command
-        .arg("-c")
-        .arg(format!(
-            "'{}' '{}' | cat",
-            env!("CARGO_BIN_EXE_just-fetch"),
-            root.display()
-        ))
-        .env("TERM", "xterm-256color");
+    command.arg("-c").arg(format!(
+        "'{}' '{}' | cat",
+        env!("CARGO_BIN_EXE_just-fetch"),
+        root.display()
+    ));
+    with_whole_environment(&mut command);
     command
 }
 
@@ -238,5 +249,6 @@ fn piped(root: &Path) -> Command {
         env!("CARGO_BIN_EXE_just-fetch"),
         root.display()
     ));
+    with_whole_environment(&mut command);
     command
 }
