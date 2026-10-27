@@ -6,12 +6,12 @@ A comment says what the code is. Why it is this way, what it deliberately leaves
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues for `kihyun1998/just-fetch` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Before creating, reading, labelling or closing an issue, read `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+Before applying or removing a triage label, read `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Before exploring the codebase or naming a domain concept, read `docs/agents/domain.md`.
