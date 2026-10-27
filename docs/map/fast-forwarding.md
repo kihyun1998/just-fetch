@@ -1,10 +1,10 @@
 # Fast-forwarding
 
-How just-fetch moves the clones a person picks up to their upstream: `pull::pullable` decides who may be offered, `main::offer_fast_forward` asks, and `pull::fast_forward` does it. This is the only step that changes a working tree.
+How just-fetch moves the clones a person picks up to their upstream: `pull::pullable` decides who may be offered, `prompt::offer_fast_forward` asks, and `pull::fast_forward` does it. This is the only step that changes a working tree.
 
 ## Who is offered
 
-A clone that is Behind and not Dirty. Untracked files alone do not block it: git refuses a fast-forward that would overwrite an untracked file and leaves the file as it was (tested). Every other clone stays out of the prompt. The table already says why: dirty, ahead, diverged, up to date, no upstream, upstream gone, fetch failed, or an error. A failed fetch blocks even a Behind clone, because its comparison is stale.
+A clone that is Behind and not Dirty. Untracked files alone do not block it: git refuses a fast-forward that would overwrite an untracked file and leaves the file as it was (tested). Every other clone stays out of the prompt. The table already says why: dirty, ahead, diverged, up to date, no upstream, upstream gone, fetch failed, or an error. A failed fetch blocks even a Behind clone, because its comparison is stale; `Refreshed::fresh_status` holds that rule for both this and prediction.
 
 ## Asking
 

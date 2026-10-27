@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
+use crate::fetch::Refreshed;
 use crate::git::{self, GitError, GitMissing};
+use crate::status::CloneStatus;
 
 /// What a trial merge of a diverged clone with its upstream says would happen.
 #[derive(Debug, PartialEq, Eq)]
@@ -126,6 +128,26 @@ impl Scratch {
     fn path(&self) -> &Path {
         self.dir.path()
     }
+}
+
+/// A prediction for each diverged clone, `None` for the rest.
+pub fn predict_diverged(refreshed: &[Refreshed]) -> Result<Vec<Option<Prediction>>, GitMissing> {
+    let is_diverged = |r: &Refreshed| matches!(r.fresh_status(), Ok(CloneStatus::Diverged { .. }));
+    let version = if refreshed.iter().any(is_diverged) {
+        git_version()?
+    } else {
+        None
+    };
+    refreshed
+        .iter()
+        .map(|r| {
+            if is_diverged(r) {
+                predict(&r.clone.path, version).map(Some)
+            } else {
+                Ok(None)
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

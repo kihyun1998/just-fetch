@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::fetch::{Fetch, Refreshed};
+use crate::fetch::{NotFresh, Refreshed};
 use crate::git::{self, GitError, GitMissing};
 use crate::status::{self, CloneStatus};
 
@@ -19,17 +19,22 @@ pub enum Blocked {
 }
 
 /// Whether `refreshed` can be offered for a fast-forward: behind its upstream, with nothing
-/// uncommitted in tracked files.
-pub fn pullable(refreshed: &Refreshed) -> Result<(), Blocked> {
-    let Ok(state) = &refreshed.clone.state else {
-        return Err(Blocked::Unreadable);
-    };
-    if matches!(refreshed.fetch, Fetch::Failed(_)) {
-        return Err(Blocked::FetchFailed);
-    }
-    match state.clone_status() {
-        CloneStatus::Behind(_) if state.dirty => Err(Blocked::Dirty),
-        CloneStatus::Behind(_) => Ok(()),
+/// uncommitted in tracked files. `Ok` holds how many commits it is behind.
+pub fn pullable(refreshed: &Refreshed) -> Result<u32, Blocked> {
+    let status = refreshed
+        .fresh_status()
+        .map_err(|not_fresh| match not_fresh {
+            NotFresh::Unreadable => Blocked::Unreadable,
+            NotFresh::FetchFailed => Blocked::FetchFailed,
+        })?;
+    let dirty = refreshed
+        .clone
+        .state
+        .as_ref()
+        .is_ok_and(|state| state.dirty);
+    match status {
+        CloneStatus::Behind(_) if dirty => Err(Blocked::Dirty),
+        CloneStatus::Behind(behind) => Ok(behind),
         CloneStatus::UpToDate => Err(Blocked::UpToDate),
         CloneStatus::Ahead(_) => Err(Blocked::Ahead),
         CloneStatus::Diverged { .. } => Err(Blocked::Diverged),
@@ -85,6 +90,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::fetch::Fetch;
     use crate::scan::FoundClone;
     use crate::status;
 
@@ -112,7 +118,7 @@ mod tests {
     #[test]
     fn a_clean_behind_clone_is_pullable() {
         let r = clone(&tracking("# branch.ab +0 -2\n", ""), Fetch::Fetched);
-        assert_eq!(pullable(&r), Ok(()));
+        assert_eq!(pullable(&r), Ok(2));
     }
 
     #[test]
@@ -121,7 +127,7 @@ mod tests {
             &tracking("# branch.ab +0 -2\n", "? notes.txt\n"),
             Fetch::Fetched,
         );
-        assert_eq!(pullable(&r), Ok(()));
+        assert_eq!(pullable(&r), Ok(2));
     }
 
     #[test]

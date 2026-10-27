@@ -1,6 +1,6 @@
 # Predicting conflicts
 
-How just-fetch says whether a diverged clone would merge cleanly with its upstream, without changing anything: `predict::predict`, called from `main` for each diverged clone whose fetch succeeded.
+How just-fetch says whether a diverged clone would merge cleanly with its upstream, without changing anything: `predict::predict`, which `predict::predict_diverged` calls for each clone whose fresh status (`Refreshed::fresh_status`: readable, and its fetch did not fail) is diverged.
 
 ## The call
 
