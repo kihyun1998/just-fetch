@@ -6,9 +6,9 @@ How just-fetch says whether a diverged clone would merge cleanly with its upstre
 
 1. In the clone: `git rev-parse HEAD @{upstream}` for the two commits, and `rev-parse --show-object-format --path-format=absolute --git-path objects` for its object format and object store. In a linked worktree `--git-path objects` gives the shared store.
 2. A scratch bare repository in the temp folder, made with the same object format, whose `objects/info/alternates` names the clone's object store.
-3. In the scratch repository: `git merge-tree --write-tree --name-only --no-messages -z <ours> <theirs>`, through `git::run_with`.
+3. In the scratch repository: `git merge-tree --write-tree --name-only --no-messages -z <ours> <theirs>`, through `git::run_for_exit_code`.
 
-- **Exit 0 is a clean merge, exit 1 is a conflict**, anything else means no merge could be made (git-merge-tree, EXIT STATUS). This is why `run_with` hands back the code: `run` reads every non-zero code as a failure.
+- **Exit 0 is a clean merge, exit 1 is a conflict**, anything else means no merge could be made (git-merge-tree, EXIT STATUS). This is why `run_for_exit_code` hands back the code: `run` reads every non-zero code as a failure.
 - **`--name-only -z`**: after the tree's id, each conflicted file once, NUL-separated. The parser's fixture was recorded from git 2.50.1; with `--name-only` git lists a file once, not once per stage.
 - **The comparison is between commits.** Uncommitted changes in a dirty clone are not part of the prediction.
 - **Exit 1 is not proof of a file in conflict.** With the clone's objects unreachable (seen while alternates were passed through an environment variable and split on a `:` in the path), git exited 1 with no names.

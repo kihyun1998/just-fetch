@@ -1,9 +1,8 @@
 use std::path::Path;
 
 use crate::fetch::{Fetch, Refreshed};
-use crate::git::{self, GitMissing};
-use crate::scan;
-use crate::status::CloneStatus;
+use crate::git::{self, GitError, GitMissing};
+use crate::status::{self, CloneStatus};
 
 /// Why a clone cannot be fast-forwarded.
 #[derive(Debug, PartialEq, Eq)]
@@ -57,45 +56,28 @@ pub struct Planned {
     pub upstream: String,
 }
 
-pub fn plan(clone: &Path) -> Result<Result<Planned, String>, GitMissing> {
-    Ok(
-        git::run(clone, &["rev-parse", "HEAD", "@{upstream}"])?.and_then(|out| {
-            match out.split_whitespace().collect::<Vec<_>>().as_slice() {
-                [head, upstream] => Ok(Planned {
-                    head: head.to_string(),
-                    upstream: upstream.to_string(),
-                }),
-                _ => Err(format!("unexpected rev-parse output: {out:?}")),
-            }
-        }),
-    )
+/// Reads the commits a fast-forward of `clone` would move between.
+pub fn plan(clone: &Path) -> Result<Planned, GitError> {
+    let (head, upstream) = git::head_and_upstream(clone)?;
+    Ok(Planned { head, upstream })
 }
 
 /// Moves `clone`'s branch to the upstream commit in `planned`, only if that is a
 /// fast-forward and the clone is still clean and at the planned HEAD. The clone's own hooks
 /// run.
 pub fn fast_forward(clone: &Path, planned: &Planned) -> Result<Pulled, GitMissing> {
-    let state = match scan::local_state(clone)? {
-        Ok(state) => state,
-        Err(message) => return Ok(Pulled::Failed(message)),
-    };
-    if state.dirty {
+    Ok(git::split_missing(try_fast_forward(clone, planned))?.unwrap_or_else(Pulled::Failed))
+}
+
+fn try_fast_forward(clone: &Path, planned: &Planned) -> Result<Pulled, GitError> {
+    if status::read(clone)?.dirty {
         return Ok(Pulled::Changed("now dirty".to_string()));
     }
-    match git::run(clone, &["rev-parse", "HEAD"])? {
-        Ok(head) if head.trim() == planned.head => {}
-        Ok(_) => return Ok(Pulled::Changed("HEAD moved".to_string())),
-        Err(message) => return Ok(Pulled::Failed(message)),
+    if git::run(clone, &["rev-parse", "HEAD"])?.trim() != planned.head {
+        return Ok(Pulled::Changed("HEAD moved".to_string()));
     }
-    Ok(
-        match git::run_with_clone_hooks(
-            clone,
-            &["merge", "--ff-only", "--quiet", &planned.upstream],
-        )? {
-            Ok(_) => Pulled::Updated,
-            Err(message) => Pulled::Failed(message),
-        },
-    )
+    git::run_with_clone_hooks(clone, &["merge", "--ff-only", "--quiet", &planned.upstream])?;
+    Ok(Pulled::Updated)
 }
 
 #[cfg(test)]

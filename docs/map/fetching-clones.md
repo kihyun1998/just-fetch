@@ -15,7 +15,7 @@ Read status → fetch the clones that have an upstream → read status again. Th
 
 ## What every git call carries
 
-`git::run` and `git::run_with` start every git call except the fast-forward, so these hold for status, fetch and prediction alike. The fast-forward goes through `git::run_with_clone_hooks`, which keeps everything here but the hooks guard ([fast-forwarding](fast-forwarding.md)).
+`git::run` and `git::run_for_exit_code` start every git call except the fast-forward, so these hold for status, fetch and prediction alike. The fast-forward goes through `git::run_with_clone_hooks`, which keeps everything here but the hooks guard ([fast-forwarding](fast-forwarding.md)).
 
 - **`-c core.hooksPath=<a path under the just-fetch executable>`**: fetch runs hooks a clone configures (`reference-transaction` fires on every ref update, `pre-auto-gc` before auto maintenance). The path sits under the executable, which is a file, so no folder can exist there and no hook can be planted in it; a temp folder could be. It must be absolute: git reads a relative hooksPath from inside the clone. Where the executable's own path is unknown, the call fails for that clone rather than run without the guard. Chosen by the maintainer, the same call as `core.fsmonitor` in [reading-clone-state](reading-clone-state.md).
 - **Auth settings are left as they are.** `core.sshCommand` and `credential.helper` also run commands, but they are how the user's fetch authenticates; a fetch through just-fetch runs them exactly as a `git fetch` typed in the clone would. Chosen by the maintainer. Not yet looked at: `remote.<name>.uploadpack`, `core.askPass`, `fetch.recurseSubmodules`.

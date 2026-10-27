@@ -1,6 +1,10 @@
 # Reading a clone's local state
 
-How just-fetch tells what a clone looks like without touching the network: one `git status` per clone, read by `status::parse`, from `scan::scan` and again after each fetch (see [fetching-clones](fetching-clones.md)).
+How just-fetch tells what a clone looks like without touching the network: one `git status` per clone, run by `status::read` and parsed by `status::parse`, from `scan::scan` and again after each fetch (see [fetching-clones](fetching-clones.md)).
+
+A git call either answers, fails for this clone alone (`GitError::Failed`, its message stored with the clone), or finds no git at all (`GitError::Missing`), which ends the whole run. `git::split_missing` makes that split wherever a result is stored or acted on: a clone's state, fetch, prediction and fast-forward, the fast-forward plan, and git's version.
+
+`tests/git_missing.rs` empties `PATH` for its whole process to make git vanish after the scan, so it holds that one test alone: a second test in the same crate would run beside it without git.
 
 ## One call, and why these flags
 

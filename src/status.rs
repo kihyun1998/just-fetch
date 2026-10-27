@@ -1,3 +1,7 @@
+use std::path::Path;
+
+use crate::git::{self, GitError};
+
 /// Where a clone's HEAD points.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Head {
@@ -51,6 +55,20 @@ impl LocalState {
             Some((ahead, behind)) => CloneStatus::Diverged { ahead, behind },
         }
     }
+}
+
+/// Reads `clone`'s local state with one `git status`.
+pub fn read(clone: &Path) -> Result<LocalState, GitError> {
+    git::run(
+        clone,
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+        ],
+    )
+    .map(|out| parse(&out))
 }
 
 /// Reads the output of `git status --porcelain=v2 --branch`.

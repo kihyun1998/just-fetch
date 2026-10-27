@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::git::{self, GitMissing};
+use crate::git::{self, GitError, GitMissing};
 
 /// What a trial merge of a diverged clone with its upstream says would happen.
 #[derive(Debug, PartialEq, Eq)]
@@ -41,7 +41,7 @@ pub fn parse_conflicts(output: &str) -> Vec<String> {
 
 /// The installed git's version, `None` when its output cannot be read.
 pub fn git_version() -> Result<Option<(u32, u32)>, GitMissing> {
-    Ok(git::run(Path::new("."), &["version"])?
+    Ok(git::split_missing(git::run(Path::new("."), &["version"]))?
         .ok()
         .and_then(|out| parse_version(&out)))
 }
@@ -56,23 +56,13 @@ pub fn predict(clone: &Path, version: Option<(u32, u32)>) -> Result<Prediction, 
             MINIMUM_GIT.0, MINIMUM_GIT.1
         )));
     }
-    let commits = match git::run(clone, &["rev-parse", "HEAD", "@{upstream}"])? {
-        Ok(out) => out
-            .split_whitespace()
-            .map(str::to_string)
-            .collect::<Vec<_>>(),
-        Err(message) => return Ok(Prediction::Unavailable(message)),
-    };
-    let [ours, theirs] = commits.as_slice() else {
-        return Ok(Prediction::Unavailable(format!(
-            "expected two commits, got {commits:?}"
-        )));
-    };
-    let scratch = match Scratch::create(clone)? {
-        Ok(scratch) => scratch,
-        Err(message) => return Ok(Prediction::Unavailable(message)),
-    };
-    let ran = git::run_with(
+    Ok(git::split_missing(try_predict(clone))?.unwrap_or_else(Prediction::Unavailable))
+}
+
+fn try_predict(clone: &Path) -> Result<Prediction, GitError> {
+    let (ours, theirs) = git::head_and_upstream(clone)?;
+    let scratch = Scratch::create(clone)?;
+    let ran = git::run_for_exit_code(
         scratch.path(),
         &[
             "merge-tree",
@@ -80,18 +70,14 @@ pub fn predict(clone: &Path, version: Option<(u32, u32)>) -> Result<Prediction, 
             "--name-only",
             "--no-messages",
             "-z",
-            ours,
-            theirs,
+            &ours,
+            &theirs,
         ],
-        &[],
     )?;
-    Ok(match ran {
-        Err(message) => Prediction::Unavailable(message),
-        Ok(ran) => match ran.code {
-            Some(0) => Prediction::Clean,
-            Some(1) => Prediction::Conflicts(parse_conflicts(&ran.stdout)),
-            _ => Prediction::Unavailable(ran.stderr),
-        },
+    Ok(match ran.code {
+        Some(0) => Prediction::Clean,
+        Some(1) => Prediction::Conflicts(parse_conflicts(&ran.stdout)),
+        _ => Prediction::Unavailable(ran.stderr),
     })
 }
 
@@ -101,8 +87,7 @@ struct Scratch {
 }
 
 impl Scratch {
-    /// `Ok(Err(message))` is a scratch repository that could not be made for this clone.
-    fn create(clone: &Path) -> Result<Result<Self, String>, GitMissing> {
+    fn create(clone: &Path) -> Result<Self, GitError> {
         let probe = git::run(
             clone,
             &[
@@ -113,21 +98,18 @@ impl Scratch {
                 "objects",
             ],
         )?;
-        let (format, objects) = match probe {
-            Ok(out) => match out.lines().collect::<Vec<_>>().as_slice() {
-                [format, objects] => (format.to_string(), PathBuf::from(objects)),
-                _ => return Ok(Err(format!("unexpected rev-parse output: {out:?}"))),
-            },
-            Err(message) => return Ok(Err(message)),
+        let (format, objects) = match probe.lines().collect::<Vec<_>>().as_slice() {
+            [format, objects] => (format.to_string(), PathBuf::from(objects)),
+            _ => {
+                return Err(GitError::Failed(format!(
+                    "unexpected rev-parse output: {probe:?}"
+                )));
+            }
         };
-        let dir = match tempfile::Builder::new()
+        let dir = tempfile::Builder::new()
             .prefix("just-fetch-predict-")
-            .tempdir()
-        {
-            Ok(dir) => dir,
-            Err(e) => return Ok(Err(e.to_string())),
-        };
-        let init = git::run(
+            .tempdir()?;
+        git::run(
             dir.path(),
             &[
                 "init",
@@ -136,14 +118,9 @@ impl Scratch {
                 &format!("--object-format={format}"),
             ],
         )?;
-        if let Err(message) = init {
-            return Ok(Err(message));
-        }
         let alternates = dir.path().join("objects").join("info").join("alternates");
-        if let Err(e) = std::fs::write(&alternates, format!("{}\n", objects.display())) {
-            return Ok(Err(e.to_string()));
-        }
-        Ok(Ok(Self { dir }))
+        std::fs::write(&alternates, format!("{}\n", objects.display()))?;
+        Ok(Self { dir })
     }
 
     fn path(&self) -> &Path {
