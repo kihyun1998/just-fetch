@@ -3,100 +3,143 @@
 
 mod common;
 
-use std::io::{ErrorKind, Write};
+use std::io::{Read, Write};
 use std::path::Path;
-use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::{clone_with_upstream, push_file_from_elsewhere};
-use expectrl::process::Healthcheck;
-use expectrl::session::OsSession;
-use expectrl::{Expect, Regex, Session};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
-const TIMEOUT: Duration = Duration::from_secs(20);
+const TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The prompt's last row. ConPTY may redraw a run of spaces as a cursor move, so the gap
-/// between the name and its standing is matched as either.
-const BETA_ROW: &str = r"beta(?:\s|\x1b\[[0-9;]*[A-Za-z])+behind 1";
+/// How long the output must stay unchanged after the process exits before it counts as read.
+const SETTLE: Duration = Duration::from_secs(1);
 
-/// A running just-fetch whose prompt is up, and everything it showed up to the prompt.
-struct Prompt {
-    session: OsSession,
-    shown: String,
+/// A program running in a pseudo-terminal, with everything it has shown so far.
+struct Terminal {
+    child: Box<dyn Child + Send + Sync>,
+    writer: Box<dyn Write + Send>,
+    shown: Arc<Mutex<Vec<u8>>>,
+    _master: Box<dyn MasterPty + Send>,
 }
 
-impl Prompt {
-    fn open(root: &Path) -> Self {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_just-fetch"));
-        command.arg(root);
-        with_whole_environment(&mut command);
-        let mut session = Session::spawn(command).unwrap();
-        session.set_expect_timeout(Some(TIMEOUT));
-        let mut shown = String::new();
-        for needle in ["fast-forward", BETA_ROW] {
-            let found = session.expect(Regex(needle)).unwrap();
-            shown.push_str(&String::from_utf8_lossy(found.before()));
-            shown.push_str(&String::from_utf8_lossy(found.get(0).unwrap_or_default()));
+impl Terminal {
+    fn spawn(mut command: CommandBuilder) -> Self {
+        command.env("TERM", "xterm-256color");
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 40,
+                cols: 160,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let writer = pair.master.take_writer().unwrap();
+        let shown = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&shown);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                sink.lock().unwrap().extend_from_slice(&buf[..n]);
+            }
+        });
+        Self {
+            child,
+            writer,
+            shown,
+            _master: pair.master,
         }
-        Self { session, shown }
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.shown.lock().unwrap()).into_owned()
+    }
+
+    /// Waits until the screen, read as [`plain`], contains `needle`.
+    fn wait_for(&self, needle: &str) {
+        let deadline = Instant::now() + TIMEOUT;
+        while !plain(&self.text()).contains(needle) {
+            assert!(
+                Instant::now() < deadline,
+                "never showed {needle:?}:\n{}",
+                self.text()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     fn press(&mut self, keys: &str) {
-        self.session.send(keys).unwrap();
-        self.session.flush().unwrap();
+        self.writer.write_all(keys.as_bytes()).unwrap();
+        self.writer.flush().unwrap();
     }
 
-    /// Waits for just-fetch to exit and returns what it showed after the prompt.
-    fn finish(self) -> String {
-        drain_until_exit(self.session)
+    /// Waits for the program to exit and its output to settle, and returns all of it.
+    fn finish(mut self) -> String {
+        let deadline = Instant::now() + TIMEOUT;
+        while self.child.try_wait().unwrap().is_none() {
+            assert!(Instant::now() < deadline, "did not exit:\n{}", self.text());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let mut last = self.text();
+        let mut quiet_since = Instant::now();
+        while quiet_since.elapsed() < SETTLE {
+            std::thread::sleep(Duration::from_millis(50));
+            let now = self.text();
+            if now != last {
+                last = now;
+                quiet_since = Instant::now();
+            }
+        }
+        last
     }
 }
 
-/// Sets every variable of this process on `command`, then `TERM`. ConPTY gives the child
-/// only the variables set on the command once any is set, so `TERM` alone would leave it
-/// without `PATH`.
-fn with_whole_environment(command: &mut Command) {
-    command
-        .envs(std::env::vars_os())
-        .env("TERM", "xterm-256color");
+/// `text` without terminal escape sequences or whitespace. A terminal may draw a run of
+/// spaces as a cursor move, so text is compared with neither.
+fn plain(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.next() {
+                Some('[') => {
+                    for c in chars.by_ref() {
+                        if ('@'..='~').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    while let Some(c) = chars.next() {
+                        if c == '\x07' || (c == '\x1b' && chars.next_if_eq(&'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else if !c.is_whitespace() {
+            out.push(c);
+        }
+    }
+    out
 }
 
-/// How long the output must stay quiet after the process exits before it counts as read.
-const SETTLE: Duration = Duration::from_secs(1);
-
-/// Reads `session` until its process exits and its output settles. Waiting for end-of-file
-/// is not enough: ConPTY can keep its output open after the child is gone, and can still be
-/// delivering what the child wrote.
-fn drain_until_exit(mut session: OsSession) -> String {
-    let deadline = Instant::now() + TIMEOUT;
-    let mut out = Vec::new();
-    let mut buf = [0u8; 4096];
-    let mut exited_quiet_since: Option<Instant> = None;
-    loop {
-        assert!(
-            Instant::now() < deadline,
-            "just-fetch did not exit:\n{}",
-            String::from_utf8_lossy(&out)
-        );
-        match session.try_read(&mut buf) {
-            Ok(0) => {}
-            Ok(n) => {
-                out.extend_from_slice(&buf[..n]);
-                exited_quiet_since = None;
-                continue;
-            }
-            Err(e) if e.kind() == ErrorKind::WouldBlock => {}
-            Err(_) => break,
-        }
-        if !session.get_process().is_alive().unwrap_or(false) {
-            let since = *exited_quiet_since.get_or_insert_with(Instant::now);
-            if since.elapsed() >= SETTLE {
-                break;
-            }
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    String::from_utf8_lossy(&out).into_owned()
+/// just-fetch on `root`, with its prompt up.
+fn open(root: &Path) -> Terminal {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_just-fetch"));
+    command.arg(root);
+    let terminal = Terminal::spawn(command);
+    terminal.wait_for("fast-forward");
+    terminal.wait_for("betabehind1");
+    terminal
 }
 
 fn two_behind(root: &Path) {
@@ -116,12 +159,12 @@ fn picking_one_clone_fast_forwards_only_that_one() {
     let root = tmp.path();
     two_behind(root);
 
-    let mut prompt = Prompt::open(root);
-    prompt.press(" ");
-    prompt.press("\r");
-    let after = prompt.finish();
+    let mut terminal = open(root);
+    terminal.press(" ");
+    terminal.press("\r");
+    let shown = plain(&terminal.finish());
 
-    assert!(after.contains("alpha: updated"), "{after}");
+    assert!(shown.contains("alpha:updated"), "{shown}");
     assert!(pulled(root, "alpha"));
     assert!(!pulled(root, "beta"));
 }
@@ -132,9 +175,9 @@ fn leaving_without_picking_changes_nothing() {
     let root = tmp.path();
     two_behind(root);
 
-    let mut prompt = Prompt::open(root);
-    prompt.press("\x1b");
-    prompt.finish();
+    let mut terminal = open(root);
+    terminal.press("\x1b");
+    terminal.finish();
 
     assert!(!pulled(root, "alpha"));
     assert!(!pulled(root, "beta"));
@@ -146,9 +189,9 @@ fn confirming_with_nothing_picked_changes_nothing() {
     let root = tmp.path();
     two_behind(root);
 
-    let mut prompt = Prompt::open(root);
-    prompt.press("\r");
-    prompt.finish();
+    let mut terminal = open(root);
+    terminal.press("\r");
+    terminal.finish();
 
     assert!(!pulled(root, "alpha"));
     assert!(!pulled(root, "beta"));
@@ -163,12 +206,13 @@ fn a_clone_that_cannot_be_pulled_is_not_offered() {
     push_file_from_elsewhere(root, "aaa-dirty", "theirs.txt", "theirs\n");
     std::fs::write(dirty.join("README.md"), "changed\n").unwrap();
 
-    let mut prompt = Prompt::open(root);
-    let offered = prompt.shown[prompt.shown.find("fast-forward").expect("no prompt")..].to_string();
-    prompt.press("\x1b");
-    prompt.finish();
+    let mut terminal = open(root);
+    let shown = plain(&terminal.text());
+    let offered = shown[shown.find("fast-forward").expect("no prompt")..].to_string();
+    terminal.press("\x1b");
+    terminal.finish();
 
-    assert!(offered.contains("alpha"), "{offered}");
+    assert!(offered.contains("alphabehind1"), "{offered}");
     assert!(
         !offered.contains("aaa-dirty"),
         "a dirty clone was offered:\n{offered}"
@@ -181,13 +225,13 @@ fn a_clone_edited_while_the_prompt_is_open_is_skipped() {
     let root = tmp.path();
     two_behind(root);
 
-    let mut prompt = Prompt::open(root);
+    let mut terminal = open(root);
     std::fs::write(root.join("alpha").join("README.md"), "edited meanwhile\n").unwrap();
-    prompt.press(" ");
-    prompt.press("\r");
-    let after = prompt.finish();
+    terminal.press(" ");
+    terminal.press("\r");
+    let shown = plain(&terminal.finish());
 
-    assert!(after.contains("alpha: skipped: now dirty"), "{after}");
+    assert!(shown.contains("alpha:skipped:nowdirty"), "{shown}");
     assert!(!pulled(root, "alpha"));
 }
 
@@ -197,13 +241,13 @@ fn a_refused_fast_forward_is_reported_as_failed() {
     let root = tmp.path();
     two_behind(root);
 
-    let mut prompt = Prompt::open(root);
+    let mut terminal = open(root);
     std::fs::write(root.join("alpha").join("theirs.txt"), "my own notes\n").unwrap();
-    prompt.press(" ");
-    prompt.press("\r");
-    let after = prompt.finish();
+    terminal.press(" ");
+    terminal.press("\r");
+    let shown = plain(&terminal.finish());
 
-    assert!(after.contains("alpha: failed: "), "{after}");
+    assert!(shown.contains("alpha:failed:"), "{shown}");
     assert_eq!(
         std::fs::read_to_string(root.join("alpha").join("theirs.txt")).unwrap(),
         "my own notes\n"
@@ -216,8 +260,7 @@ fn with_output_piped_away_nothing_is_offered_or_pulled() {
     let root = tmp.path();
     two_behind(root);
 
-    let session = Session::spawn(piped(root)).unwrap();
-    let shown = drain_until_exit(session);
+    let shown = plain(&Terminal::spawn(piped(root)).finish());
 
     assert!(shown.contains("alpha"), "{shown}");
     assert!(
@@ -229,26 +272,25 @@ fn with_output_piped_away_nothing_is_offered_or_pulled() {
 
 /// just-fetch on `root` inside the terminal, with its output piped through another program.
 #[cfg(unix)]
-fn piped(root: &Path) -> Command {
-    let mut command = Command::new("sh");
-    command.arg("-c").arg(format!(
+fn piped(root: &Path) -> CommandBuilder {
+    let mut command = CommandBuilder::new("sh");
+    command.arg("-c");
+    command.arg(format!(
         "'{}' '{}' | cat",
         env!("CARGO_BIN_EXE_just-fetch"),
         root.display()
     ));
-    with_whole_environment(&mut command);
     command
 }
 
 #[cfg(windows)]
-fn piped(root: &Path) -> Command {
-    use std::os::windows::process::CommandExt;
-    let mut command = Command::new("cmd");
-    command.raw_arg(format!(
-        "/C \"\"{}\" \"{}\" | more\"",
+fn piped(root: &Path) -> CommandBuilder {
+    let mut command = CommandBuilder::new("powershell");
+    command.args(["-NoProfile", "-Command"]);
+    command.arg(format!(
+        "& '{}' '{}' | Out-Host",
         env!("CARGO_BIN_EXE_just-fetch"),
         root.display()
     ));
-    with_whole_environment(&mut command);
     command
 }

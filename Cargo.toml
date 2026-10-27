@@ -18,4 +18,4 @@ strip = true
 lto = true
 
 [dev-dependencies]
-expectrl = "0.9"
+portable-pty = "0.9"
