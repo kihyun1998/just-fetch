@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A Rust CLI that fetches what I want from my GitHub, for Windows and macOS.
+A Rust CLI that scans my local clones, fetches them, and shows how each stands against its upstream, for Windows and macOS.
 
 ## References
 
