@@ -2,7 +2,7 @@ mod common;
 
 use std::process::{Command, Output};
 
-use common::{clone_with_upstream, empty_clone};
+use common::{clone_with_upstream, commit, empty_clone, git, push_from_elsewhere, remote_of};
 
 fn just_fetch() -> Command {
     Command::new(env!("CARGO_BIN_EXE_just-fetch"))
@@ -97,4 +97,55 @@ fn a_file_given_as_the_path_is_not_called_missing() {
     assert!(!out.status.success());
     assert!(err.contains("file.txt"), "{err}");
     assert!(!err.contains("no such folder"), "{err}");
+}
+
+#[test]
+fn each_row_says_how_the_clone_stands_against_its_upstream() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    clone_with_upstream(root, "same");
+    clone_with_upstream(root, "behind");
+    push_from_elsewhere(root, "behind", "main");
+    let ahead = clone_with_upstream(root, "ahead");
+    commit(&ahead, "local only");
+    let diverged = clone_with_upstream(root, "diverged");
+    commit(&diverged, "local only");
+    push_from_elsewhere(root, "diverged", "main");
+    let gone = clone_with_upstream(root, "gone");
+    git(&gone, &["switch", "-q", "-c", "side"]);
+    git(&gone, &["push", "-q", "-u", "origin", "side"]);
+    git(&remote_of(root, "gone"), &["branch", "-q", "-D", "side"]);
+    let broken = clone_with_upstream(root, "broken");
+    git(
+        &broken,
+        &["remote", "set-url", "origin", "does/not/exist.git"],
+    );
+
+    let out = just_fetch().arg(root).output().unwrap();
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(row(&text, "same").contains("up to date"));
+    assert!(row(&text, "behind").contains("behind 1"));
+    assert!(row(&text, "ahead").contains("ahead 1"));
+    assert!(row(&text, "diverged").contains("diverged +1 -1"));
+    assert!(row(&text, "gone").contains("upstream gone"));
+    assert!(row(&text, "broken").contains("fetch failed: "));
+    assert!(!row(&text, "broken").contains("up to date"));
+}
+
+#[test]
+fn a_many_line_git_message_stays_on_its_clone_row() {
+    let tmp = tempfile::tempdir().unwrap();
+    let broken = clone_with_upstream(tmp.path(), "broken");
+    git(
+        &broken,
+        &["remote", "set-url", "origin", "does/not/exist.git"],
+    );
+
+    let out = just_fetch().arg(tmp.path()).output().unwrap();
+    let text = stdout(&out);
+
+    assert_eq!(text.lines().count(), 1, "one clone, one row:\n{text}");
+    assert!(row(&text, "broken").contains("fetch failed: "));
 }

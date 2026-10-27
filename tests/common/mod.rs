@@ -1,3 +1,6 @@
+// Each test crate uses only some of these helpers.
+#![allow(dead_code)]
+
 use std::path::Path;
 use std::process::Command;
 
@@ -54,4 +57,36 @@ pub fn empty_clone(parent: &Path, name: &str) -> std::path::PathBuf {
     std::fs::create_dir_all(&clone).unwrap();
     git(&clone, &["init", "-q"]);
     clone
+}
+
+/// The bare remote `clone_with_upstream` made for `name`.
+pub fn remote_of(parent: &Path, name: &str) -> std::path::PathBuf {
+    parent.join(format!(".remotes/{name}.git"))
+}
+
+pub fn commit(clone: &Path, message: &str) {
+    git(clone, &["commit", "-q", "--allow-empty", "-m", message]);
+}
+
+/// Pushes one new commit to `branch` of `name`'s remote from a second clone, as another
+/// machine would.
+pub fn push_from_elsewhere(parent: &Path, name: &str, branch: &str) {
+    let elsewhere = parent.join(format!(".elsewhere/{name}"));
+    if !elsewhere.exists() {
+        std::fs::create_dir_all(parent.join(".elsewhere")).unwrap();
+        git(
+            &parent.join(".elsewhere"),
+            &[
+                "clone",
+                "-q",
+                remote_of(parent, name).to_str().unwrap(),
+                name,
+            ],
+        );
+    }
+    git(&elsewhere, &["fetch", "-q"]);
+    git(&elsewhere, &["switch", "-q", branch]);
+    git(&elsewhere, &["pull", "-q", "--ff-only"]);
+    commit(&elsewhere, "from elsewhere");
+    git(&elsewhere, &["push", "-q", "origin", branch]);
 }

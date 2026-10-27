@@ -1,10 +1,10 @@
 # Reading a clone's local state
 
-How just-fetch tells what a clone looks like without touching the network: one `git status` per clone, read by `status::parse`, driven from `scan::scan`.
+How just-fetch tells what a clone looks like without touching the network: one `git status` per clone, read by `status::parse`, from `scan::scan` and again after each fetch (see [fetching-clones](fetching-clones.md)).
 
 ## One call, and why these flags
 
-`git -c core.fsmonitor=false --no-optional-locks -C <clone> status --porcelain=v2 --branch --untracked-files=all`
+`git status --porcelain=v2 --branch --untracked-files=all`, started through `git::run`, which adds `-c core.fsmonitor=false`, `--no-optional-locks` and the settings listed in [fetching-clones](fetching-clones.md).
 
 - **`--porcelain=v2 --branch`** is the format git documents as stable for scripts: it does not change with the user's locale or git version, and its `# branch.*` headers carry the branch, `(detached)`, `(initial)` for a branch with no commits, and the upstream. Lines starting `1`, `2` or `u` are changes to tracked files (Dirty); `?` lines are untracked files.
 - **`-c core.fsmonitor=false`** keeps a clone's own config from running a command during the scan. `core.fsmonitor` in `.git/config` names a program `status` executes, so a clone unpacked from somewhere else could run anything the moment just-fetch walked past it. A command-line `-c` outranks the clone's config. The cost is fsmonitor's speed-up on very large clones, which a 15 ms-a-clone scan does not need. Chosen by the maintainer.
