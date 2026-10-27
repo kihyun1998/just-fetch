@@ -10,8 +10,12 @@ readme = "README.md"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 tempfile = "3"
+dialoguer = "0.11"
 
 
 [profile.release]
 strip = true
 lto = true
+
+[target.'cfg(unix)'.dev-dependencies]
+rexpect = "0.6"

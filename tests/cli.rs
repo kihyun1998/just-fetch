@@ -244,3 +244,22 @@ fn a_conflicted_file_with_a_newline_in_its_name_stays_on_its_row() {
         "{text}"
     );
 }
+
+#[test]
+fn without_a_terminal_nothing_is_pulled() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    clone_with_upstream(root, "behind");
+    push_file_from_elsewhere(root, "behind", "theirs.txt", "theirs\n");
+
+    let out = just_fetch().arg(root).output().unwrap();
+
+    assert!(out.status.success());
+    assert!(row(&stdout(&out), "behind").contains("behind 1"));
+    assert!(!root.join("behind").join("theirs.txt").exists());
+    assert!(
+        out.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
