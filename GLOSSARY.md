@@ -14,6 +14,10 @@ _Avoid_: Workspace, base dir
 
 ## Clone status
 
+**Up to date**:
+The clone and its remote have the same commits on the upstream branch, as of the fetch just made.
+_Avoid_: Synced, clean (clean is about the working tree)
+
 **Behind**:
 The remote has commits the clone lacks, and the clone has none the remote lacks, so it can be fast-forwarded.
 _Avoid_: Outdated, stale

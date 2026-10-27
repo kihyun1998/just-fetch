@@ -1,7 +1,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
+use crate::git::{self, GitMissing};
 use crate::status::{self, LocalState};
 
 /// A clone found under the scan root, with its local state or why git could not read it.
@@ -35,7 +35,7 @@ pub fn scan(root: &Path) -> Result<Vec<FoundClone>, ScanError> {
     clones
         .into_iter()
         .map(|path| {
-            let state = local_state(&path)?;
+            let state = local_state(&path).map_err(|GitMissing| ScanError::GitMissing)?;
             Ok(FoundClone {
                 name: display_name(&path),
                 path,
@@ -58,26 +58,15 @@ fn display_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
-/// The outer `Err` stops the whole scan; the inner one belongs to this clone alone.
-fn local_state(path: &Path) -> Result<Result<LocalState, String>, ScanError> {
-    let out = Command::new("git")
-        .args(["-c", "core.fsmonitor=false"])
-        .arg("--no-optional-locks")
-        .arg("-C")
-        .arg(path)
-        .args([
+pub(crate) fn local_state(path: &Path) -> Result<Result<LocalState, String>, GitMissing> {
+    let porcelain = git::run(
+        path,
+        &[
             "status",
             "--porcelain=v2",
             "--branch",
             "--untracked-files=all",
-        ])
-        .output();
-    match out {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(ScanError::GitMissing),
-        Err(e) => Ok(Err(e.to_string())),
-        Ok(out) if !out.status.success() => {
-            Ok(Err(String::from_utf8_lossy(&out.stderr).trim().to_string()))
-        }
-        Ok(out) => Ok(Ok(status::parse(&String::from_utf8_lossy(&out.stdout)))),
-    }
+        ],
+    )?;
+    Ok(porcelain.map(|out| status::parse(&out)))
 }
