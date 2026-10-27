@@ -2,20 +2,22 @@
 name = "just-fetch"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "Finds which local clones are out of step with their remotes, and fetches the ones you pick"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kihyun1998/just-fetch"
 readme = "README.md"
+keywords = ["git", "fetch", "fast-forward", "cli", "repositories"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 dialoguer = "0.11"
 
+[dev-dependencies]
+portable-pty = "0.9"
 
 [profile.release]
 strip = true
 lto = true
-
-[dev-dependencies]
-portable-pty = "0.9"

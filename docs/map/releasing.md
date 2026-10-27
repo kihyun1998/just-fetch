@@ -23,4 +23,6 @@ Changing any of these breaks the tap or the bucket, whose auto-update scripts bu
 
 - No build-provenance attestation. The maintainer chose `SHA256SUMS` alone, where just-shield attests its archives.
 - No Linux targets. just-fetch is for Windows and macOS.
+- No CHANGELOG. Each release's notes are generated from its pull requests (`gh release create --generate-notes`).
+- The gate runs on windows-latest and macos-latest, not on windows-11-arm, which CI covers on every pull request. The verify job still runs the arm64 Windows binary on windows-11-arm before anything is published.
 - No third-party build tool. Like just-shield, the workflow is written by hand, and every action is pinned to a commit.

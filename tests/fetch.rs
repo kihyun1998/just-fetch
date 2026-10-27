@@ -3,7 +3,9 @@ mod common;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use common::{clone_with_upstream, commit, empty_clone, git, push_from_elsewhere, remote_of};
+use common::{
+    clone_with_upstream, commit, empty_clone, git, make_executable, push_from_elsewhere, remote_of,
+};
 use just_fetch::fetch::{Fetch, Refreshed, fetch_all};
 use just_fetch::scan::scan;
 use just_fetch::status::CloneStatus;
@@ -228,12 +230,3 @@ fn clones_are_fetched_at_the_same_time() {
         "four 2-second fetches took {elapsed:?}; one at a time would take at least 8s"
     );
 }
-
-#[cfg(unix)]
-fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) {}
