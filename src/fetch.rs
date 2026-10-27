@@ -19,7 +19,7 @@ pub enum Fetch {
 /// A clone after its fetch, with its local state read again.
 #[derive(Debug)]
 pub struct Refreshed {
-    pub clone: FoundClone,
+    pub found: FoundClone,
     pub fetch: Fetch,
 }
 
@@ -35,7 +35,7 @@ impl Refreshed {
     /// How the clone stands against its upstream after this run's fetch.
     pub fn fresh_status(&self) -> Result<CloneStatus, NotFresh> {
         let state = self
-            .clone
+            .found
             .state
             .as_ref()
             .map_err(|_| NotFresh::Unreadable)?;
@@ -77,18 +77,18 @@ pub fn fetch_all(found: Vec<FoundClone>) -> Result<Vec<Refreshed>, GitMissing> {
         .collect()
 }
 
-fn refresh(mut clone: FoundClone) -> Result<Refreshed, GitMissing> {
-    let has_upstream = matches!(&clone.state, Ok(state) if state.upstream.is_some());
+fn refresh(mut found: FoundClone) -> Result<Refreshed, GitMissing> {
+    let has_upstream = matches!(&found.state, Ok(state) if state.upstream.is_some());
     if !has_upstream {
         return Ok(Refreshed {
-            clone,
+            found,
             fetch: Fetch::Skipped,
         });
     }
-    let fetch = match git::split_missing(git::run(&clone.path, &["fetch", "--prune", "--quiet"]))? {
+    let fetch = match git::split_missing(git::run(&found.path, &["fetch", "--prune", "--quiet"]))? {
         Ok(_) => Fetch::Fetched,
         Err(message) => Fetch::Failed(message),
     };
-    clone.state = git::split_missing(status::read(&clone.path))?;
-    Ok(Refreshed { clone, fetch })
+    found.state = git::split_missing(status::read(&found.path))?;
+    Ok(Refreshed { found, fetch })
 }

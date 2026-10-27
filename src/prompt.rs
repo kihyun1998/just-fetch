@@ -1,12 +1,12 @@
 use std::error::Error;
 use std::io::IsTerminal;
 
+use crate::fast_forward::{Outcome, Planned, fast_forward, offerable, plan};
 use crate::fetch::Refreshed;
 use crate::git;
-use crate::pull::{Planned, Pulled, fast_forward, plan, pullable};
 use crate::report::one_line;
 
-/// Asks which pullable clones to fast-forward, then does it. Asks only when stdin, stdout
+/// Asks which offerable clones to fast-forward, then does it. Asks only when stdin, stdout
 /// and stderr are all terminals, so piped or scripted runs change nothing.
 pub fn offer_fast_forward(refreshed: &[Refreshed]) -> Result<(), Box<dyn Error>> {
     let at_terminal = std::io::stdin().is_terminal()
@@ -18,9 +18,9 @@ pub fn offer_fast_forward(refreshed: &[Refreshed]) -> Result<(), Box<dyn Error>>
     let mut candidates: Vec<(&Refreshed, Planned)> = Vec::new();
     let mut labels: Vec<String> = Vec::new();
     for r in refreshed {
-        let Ok(behind) = pullable(r) else { continue };
-        if let Ok(planned) = git::split_missing(plan(&r.clone.path))? {
-            labels.push(format!("{}  behind {behind}", r.clone.name));
+        let Ok(behind) = offerable(r) else { continue };
+        if let Ok(planned) = git::split_missing(plan(&r.found.path))? {
+            labels.push(format!("{}  behind {behind}", r.found.name));
             candidates.push((r, planned));
         }
     }
@@ -38,11 +38,11 @@ pub fn offer_fast_forward(refreshed: &[Refreshed]) -> Result<(), Box<dyn Error>>
     };
     for i in picked {
         let (r, planned) = &candidates[i];
-        let name = &r.clone.name;
-        match fast_forward(&r.clone.path, planned)? {
-            Pulled::Updated => println!("{name}: updated"),
-            Pulled::Changed(what) => println!("{name}: skipped: {what} since the list was made"),
-            Pulled::Failed(message) => println!("{name}: failed: {}", one_line(&message)),
+        let name = &r.found.name;
+        match fast_forward(&r.found.path, planned)? {
+            Outcome::Updated => println!("{name}: updated"),
+            Outcome::Changed(what) => println!("{name}: skipped: {what} since the list was made"),
+            Outcome::Failed(message) => println!("{name}: failed: {}", one_line(&message)),
         }
     }
     Ok(())

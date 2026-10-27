@@ -14,11 +14,21 @@ pub enum Prediction {
     Unavailable(String),
 }
 
+/// A git release, compared by major then minor number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GitVersion {
+    pub major: u32,
+    pub minor: u32,
+}
+
 /// The oldest git whose `merge-tree` can predict.
-pub const MINIMUM_GIT: (u32, u32) = (2, 38);
+pub const MINIMUM_GIT: GitVersion = GitVersion {
+    major: 2,
+    minor: 38,
+};
 
 /// Reads `git version` output: `git version 2.50.1 (Apple Git-155)`, `git version 2.56.0.windows.2`.
-pub fn parse_version(output: &str) -> Option<(u32, u32)> {
+pub fn parse_version(output: &str) -> Option<GitVersion> {
     let number = output
         .trim()
         .strip_prefix("git version ")?
@@ -27,7 +37,7 @@ pub fn parse_version(output: &str) -> Option<(u32, u32)> {
     let mut parts = number.split('.');
     let major = parts.next()?.parse().ok()?;
     let minor = parts.next()?.parse().ok()?;
-    Some((major, minor))
+    Some(GitVersion { major, minor })
 }
 
 /// Reads `merge-tree --write-tree --name-only --no-messages -z` output: the tree, then each
@@ -42,7 +52,7 @@ pub fn parse_conflicts(output: &str) -> Vec<String> {
 }
 
 /// The installed git's version, `None` when its output cannot be read.
-pub fn git_version() -> Result<Option<(u32, u32)>, GitMissing> {
+pub fn git_version() -> Result<Option<GitVersion>, GitMissing> {
     Ok(git::split_missing(git::run(Path::new("."), &["version"]))?
         .ok()
         .and_then(|out| parse_version(&out)))
@@ -51,11 +61,11 @@ pub fn git_version() -> Result<Option<(u32, u32)>, GitMissing> {
 /// Trial-merges `clone`'s upstream into its HEAD. The merge runs in a scratch repository
 /// that reads the clone's objects, so the clone's refs, index, working tree, object store,
 /// config and attributes play no part and are left as they were.
-pub fn predict(clone: &Path, version: Option<(u32, u32)>) -> Result<Prediction, GitMissing> {
+pub fn predict(clone: &Path, version: Option<GitVersion>) -> Result<Prediction, GitMissing> {
     if version.is_none_or(|v| v < MINIMUM_GIT) {
         return Ok(Prediction::Unavailable(format!(
             "needs git {}.{} or later",
-            MINIMUM_GIT.0, MINIMUM_GIT.1
+            MINIMUM_GIT.major, MINIMUM_GIT.minor
         )));
     }
     Ok(git::split_missing(try_predict(clone))?.unwrap_or_else(Prediction::Unavailable))
@@ -142,7 +152,7 @@ pub fn predict_diverged(refreshed: &[Refreshed]) -> Result<Vec<Option<Prediction
         .iter()
         .map(|r| {
             if is_diverged(r) {
-                predict(&r.clone.path, version).map(Some)
+                predict(&r.found.path, version).map(Some)
             } else {
                 Ok(None)
             }
@@ -156,16 +166,31 @@ mod tests {
 
     #[test]
     fn reads_plain_apple_and_windows_versions() {
-        assert_eq!(parse_version("git version 2.38.0\n"), Some((2, 38)));
+        assert_eq!(
+            parse_version("git version 2.38.0\n"),
+            Some(GitVersion {
+                major: 2,
+                minor: 38
+            })
+        );
         assert_eq!(
             parse_version("git version 2.50.1 (Apple Git-155)\n"),
-            Some((2, 50))
+            Some(GitVersion {
+                major: 2,
+                minor: 50
+            })
         );
         assert_eq!(
             parse_version("git version 2.56.0.windows.2\n"),
-            Some((2, 56))
+            Some(GitVersion {
+                major: 2,
+                minor: 56
+            })
         );
-        assert_eq!(parse_version("git version 3.0\n"), Some((3, 0)));
+        assert_eq!(
+            parse_version("git version 3.0\n"),
+            Some(GitVersion { major: 3, minor: 0 })
+        );
     }
 
     #[test]

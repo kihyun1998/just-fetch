@@ -20,7 +20,7 @@ pub enum Blocked {
 
 /// Whether `refreshed` can be offered for a fast-forward: behind its upstream, with nothing
 /// uncommitted in tracked files. `Ok` holds how many commits it is behind.
-pub fn pullable(refreshed: &Refreshed) -> Result<u32, Blocked> {
+pub fn offerable(refreshed: &Refreshed) -> Result<u32, Blocked> {
     let status = refreshed
         .fresh_status()
         .map_err(|not_fresh| match not_fresh {
@@ -28,7 +28,7 @@ pub fn pullable(refreshed: &Refreshed) -> Result<u32, Blocked> {
             NotFresh::FetchFailed => Blocked::FetchFailed,
         })?;
     let dirty = refreshed
-        .clone
+        .found
         .state
         .as_ref()
         .is_ok_and(|state| state.dirty);
@@ -46,7 +46,7 @@ pub fn pullable(refreshed: &Refreshed) -> Result<u32, Blocked> {
 
 /// The result of fast-forwarding one clone.
 #[derive(Debug)]
-pub enum Pulled {
+pub enum Outcome {
     Updated,
     /// The clone is no longer as planned, so nothing was done; what changed.
     Changed(String),
@@ -70,19 +70,19 @@ pub fn plan(clone: &Path) -> Result<Planned, GitError> {
 /// Moves `clone`'s branch to the upstream commit in `planned`, only if that is a
 /// fast-forward and the clone is still clean and at the planned HEAD. The clone's own hooks
 /// run.
-pub fn fast_forward(clone: &Path, planned: &Planned) -> Result<Pulled, GitMissing> {
-    Ok(git::split_missing(try_fast_forward(clone, planned))?.unwrap_or_else(Pulled::Failed))
+pub fn fast_forward(clone: &Path, planned: &Planned) -> Result<Outcome, GitMissing> {
+    Ok(git::split_missing(try_fast_forward(clone, planned))?.unwrap_or_else(Outcome::Failed))
 }
 
-fn try_fast_forward(clone: &Path, planned: &Planned) -> Result<Pulled, GitError> {
+fn try_fast_forward(clone: &Path, planned: &Planned) -> Result<Outcome, GitError> {
     if status::read(clone)?.dirty {
-        return Ok(Pulled::Changed("now dirty".to_string()));
+        return Ok(Outcome::Changed("now dirty".to_string()));
     }
     if git::run(clone, &["rev-parse", "HEAD"])?.trim() != planned.head {
-        return Ok(Pulled::Changed("HEAD moved".to_string()));
+        return Ok(Outcome::Changed("HEAD moved".to_string()));
     }
     git::run_with_clone_hooks(clone, &["merge", "--ff-only", "--quiet", &planned.upstream])?;
-    Ok(Pulled::Updated)
+    Ok(Outcome::Updated)
 }
 
 #[cfg(test)]
@@ -96,7 +96,7 @@ mod tests {
 
     fn clone(porcelain: &str, fetch: Fetch) -> Refreshed {
         Refreshed {
-            clone: FoundClone {
+            found: FoundClone {
                 name: "repo".into(),
                 path: PathBuf::from("repo"),
                 state: Ok(status::parse(porcelain)),
@@ -116,9 +116,9 @@ mod tests {
     const DIRTY: &str = "1 .M N... 100644 100644 100644 e69de29 e69de29 README.md\n";
 
     #[test]
-    fn a_clean_behind_clone_is_pullable() {
+    fn a_clean_behind_clone_is_offerable() {
         let r = clone(&tracking("# branch.ab +0 -2\n", ""), Fetch::Fetched);
-        assert_eq!(pullable(&r), Ok(2));
+        assert_eq!(offerable(&r), Ok(2));
     }
 
     #[test]
@@ -127,13 +127,13 @@ mod tests {
             &tracking("# branch.ab +0 -2\n", "? notes.txt\n"),
             Fetch::Fetched,
         );
-        assert_eq!(pullable(&r), Ok(2));
+        assert_eq!(offerable(&r), Ok(2));
     }
 
     #[test]
     fn a_dirty_behind_clone_is_blocked_as_dirty() {
         let r = clone(&tracking("# branch.ab +0 -2\n", DIRTY), Fetch::Fetched);
-        assert_eq!(pullable(&r), Err(Blocked::Dirty));
+        assert_eq!(offerable(&r), Err(Blocked::Dirty));
     }
 
     #[test]
@@ -146,15 +146,15 @@ mod tests {
         ];
         for (ab, reason) in cases {
             let r = clone(&tracking(ab, ""), Fetch::Fetched);
-            assert_eq!(pullable(&r), Err(reason), "{ab:?}");
+            assert_eq!(offerable(&r), Err(reason), "{ab:?}");
         }
         let lonely = clone("# branch.oid 374dd5d\n# branch.head main\n", Fetch::Skipped);
-        assert_eq!(pullable(&lonely), Err(Blocked::NoUpstream));
+        assert_eq!(offerable(&lonely), Err(Blocked::NoUpstream));
         let unborn = clone(
             "# branch.oid (initial)\n# branch.head main\n# branch.upstream origin/main\n",
             Fetch::Fetched,
         );
-        assert_eq!(pullable(&unborn), Err(Blocked::NoCommits));
+        assert_eq!(offerable(&unborn), Err(Blocked::NoCommits));
     }
 
     #[test]
@@ -163,13 +163,13 @@ mod tests {
             &tracking("# branch.ab +0 -2\n", ""),
             Fetch::Failed("no".into()),
         );
-        assert_eq!(pullable(&r), Err(Blocked::FetchFailed));
+        assert_eq!(offerable(&r), Err(Blocked::FetchFailed));
     }
 
     #[test]
     fn a_clone_git_could_not_read_is_blocked() {
         let mut r = clone(&tracking("# branch.ab +0 -2\n", ""), Fetch::Skipped);
-        r.clone.state = Err("broken".into());
-        assert_eq!(pullable(&r), Err(Blocked::Unreadable));
+        r.found.state = Err("broken".into());
+        assert_eq!(offerable(&r), Err(Blocked::Unreadable));
     }
 }

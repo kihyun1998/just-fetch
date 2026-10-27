@@ -6,18 +6,18 @@ use crate::status::{CloneStatus, Head, LocalState};
 pub fn render(refreshed: &[Refreshed], predictions: &[Option<Prediction>]) -> String {
     let width = refreshed
         .iter()
-        .map(|r| r.clone.name.chars().count())
+        .map(|r| r.found.name.chars().count())
         .max()
         .unwrap_or(0);
     refreshed
         .iter()
         .zip(predictions)
         .map(|(r, prediction)| {
-            let detail = match &r.clone.state {
+            let detail = match &r.found.state {
                 Ok(state) => describe(state, &r.fetch, prediction.as_ref()),
                 Err(message) => format!("error: {}", one_line(message)),
             };
-            format!("{:<width$}  {detail}\n", r.clone.name)
+            format!("{:<width$}  {detail}\n", r.found.name)
         })
         .collect()
 }
@@ -103,7 +103,7 @@ mod tests {
 
     fn row(porcelain: &str, fetch: Fetch, prediction: Option<Prediction>) -> String {
         let refreshed = Refreshed {
-            clone: FoundClone {
+            found: FoundClone {
                 name: "repo".into(),
                 path: PathBuf::from("repo"),
                 state: Ok(status::parse(porcelain)),
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn a_clone_git_could_not_read_shows_its_error_on_one_line() {
         let refreshed = Refreshed {
-            clone: FoundClone {
+            found: FoundClone {
                 name: "broken".into(),
                 path: PathBuf::from("broken"),
                 state: Err("fatal: not a git repository\nhint: check it".into()),
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn names_are_padded_to_the_longest() {
         let short = Refreshed {
-            clone: FoundClone {
+            found: FoundClone {
                 name: "a".into(),
                 path: PathBuf::from("a"),
                 state: Err("x".into()),
@@ -191,7 +191,7 @@ mod tests {
             fetch: Fetch::Skipped,
         };
         let long = Refreshed {
-            clone: FoundClone {
+            found: FoundClone {
                 name: "longer".into(),
                 path: PathBuf::from("longer"),
                 state: Err("y".into()),
