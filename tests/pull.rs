@@ -33,10 +33,7 @@ fn a_behind_clone_is_fast_forwarded_to_its_upstream() {
 
     assert!(matches!(pulled, Pulled::Updated), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), rev(&clone, "@{upstream}"));
-    assert_eq!(
-        std::fs::read_to_string(clone.join("theirs.txt")).unwrap(),
-        "theirs\n"
-    );
+    assert_eq!(text(&clone.join("theirs.txt")), "theirs\n");
 }
 
 #[test]
@@ -67,10 +64,7 @@ fn an_untracked_file_in_the_way_is_refused_and_kept() {
 
     assert!(matches!(pulled, Pulled::Failed(_)), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), head);
-    assert_eq!(
-        std::fs::read_to_string(clone.join("theirs.txt")).unwrap(),
-        "my own notes\n"
-    );
+    assert_eq!(text(&clone.join("theirs.txt")), "my own notes\n");
 }
 
 #[test]
@@ -146,6 +140,12 @@ fn a_clone_whose_head_moved_after_planning_is_left_alone() {
 
     assert!(matches!(pulled, Pulled::Changed(_)), "{pulled:?}");
     assert_eq!(rev(&clone, "HEAD"), head);
+}
+
+/// A file's text with line endings as committed, since checkout may turn `\n` into `\r\n`
+/// where `core.autocrlf` is on (Git for Windows sets it system-wide).
+fn text(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap().replace("\r\n", "\n")
 }
 
 #[cfg(unix)]
