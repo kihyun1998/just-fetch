@@ -8,5 +8,5 @@ A Rust CLI that fetches what I want from my GitHub, for Windows and macOS.
 
 | Source | Informs | Reached by | Binding |
 |---|---|---|---|
-| GitHub REST API | how it works | docs.github.com — **summarized** | binding |
 | gh CLI | how it works | cli/cli source tree — raw | example |
+| just-shield | where files go | kihyun1998/just-shield source tree — raw | example |
