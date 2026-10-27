@@ -10,7 +10,7 @@ A clone that is Behind and not Dirty. Untracked files alone do not block it: git
 
 A `dialoguer` multi-select with nothing picked to start with. Space picks, enter confirms, esc leaves. Leaving, or confirming with nothing picked, changes nothing. The prompt appears only when stdin, stdout and stderr are all terminals, so a piped or scripted run, `just-fetch | less` included, prints the table and changes nothing, with nothing on stderr either. A prompt that fails to start ends the run with an error rather than a silent success.
 
-The prompt is tested through a pseudo-terminal with `rexpect`, Unix only. Each key is flushed after it is sent; without the flush the keys never reached the prompt. On Windows no test drives it.
+The prompt is tested through a pseudo-terminal with `expectrl`: a Unix pty on macOS, ConPTY on Windows, which is the console layer Windows Terminal hosts. CI runs it on macos-latest, windows-latest and windows-11-arm. Each key is flushed after it is sent; with rexpect, before this, the keys never reached the prompt without the flush. The tests wait for just-fetch to exit rather than for end-of-file, since ConPTY can keep its output open after the child is gone, and they match a row's gap as spaces or a cursor move, since ConPTY may redraw a run of spaces as one. What no test sees is how Windows Terminal itself paints the prompt.
 
 ## The call
 
