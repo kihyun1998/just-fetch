@@ -17,15 +17,11 @@ pub struct Ran {
     pub stderr: String,
 }
 
-/// Runs git in `clone`, the way every just-fetch call does: never prompting, and never
-/// running a command the clone's own config names for status or ref updates.
+/// Runs git in `clone` without prompting, without fsmonitor and without the clone's hooks.
 ///
 /// `Ok(Err(message))` is git failing for this clone alone; its stderr, trimmed.
 pub fn run(clone: &Path, args: &[&str]) -> Result<Result<String, String>, GitMissing> {
-    Ok(run_with(clone, args, &[])?.and_then(|ran| match ran.code {
-        Some(0) => Ok(ran.stdout),
-        _ => Err(ran.stderr),
-    }))
+    Ok(run_with(clone, args, &[])?.and_then(Ran::into_stdout))
 }
 
 /// [`run`] with extra environment, handing back the exit code for the caller to read.
@@ -42,10 +38,37 @@ pub fn run_with(
                 .to_string(),
         ));
     };
+    let hooks_off = format!("core.hooksPath={}", no_hooks.display());
+    start(clone, &["-c", &hooks_off], args, env)
+}
+
+/// [`run`], except that the clone's own hooks run.
+pub fn run_with_clone_hooks(
+    clone: &Path,
+    args: &[&str],
+) -> Result<Result<String, String>, GitMissing> {
+    Ok(start(clone, &[], args, &[])?.and_then(Ran::into_stdout))
+}
+
+impl Ran {
+    /// stdout for exit 0, stderr for anything else.
+    fn into_stdout(self) -> Result<String, String> {
+        match self.code {
+            Some(0) => Ok(self.stdout),
+            _ => Err(self.stderr),
+        }
+    }
+}
+
+fn start(
+    clone: &Path,
+    hooks: &[&str],
+    args: &[&str],
+    env: &[(&str, &OsStr)],
+) -> Result<Result<Ran, String>, GitMissing> {
     let out = Command::new("git")
         .args(["-c", "core.fsmonitor=false"])
-        .arg("-c")
-        .arg(format!("core.hooksPath={}", no_hooks.display()))
+        .args(hooks)
         .arg("--no-optional-locks")
         .arg("-C")
         .arg(clone)
