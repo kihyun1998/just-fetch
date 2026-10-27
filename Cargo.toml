@@ -1,0 +1,18 @@
+[package]
+name = "just-fetch"
+version = "0.1.0"
+edition = "2024"
+description = "Finds which local clones are out of step with their remotes, and fetches the ones you pick"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kihyun1998/just-fetch"
+readme = "README.md"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+strip = true
+lto = true

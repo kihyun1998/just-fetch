@@ -30,8 +30,12 @@ A diverged clone whose trial merge with its remote would leave files in conflict
 _Avoid_: Conflict, merge conflict
 
 **Dirty**:
-A clone with uncommitted changes in its working tree. A dirty clone is never pulled.
+A clone with uncommitted changes to tracked files. Untracked files alone do not make a clone dirty. A dirty clone is never pulled.
 _Avoid_: Modified, unclean
 
 **No upstream**:
 A clone whose current branch tracks no remote branch, so there is nothing to compare it against.
+
+**Gone upstream**:
+A clone whose current branch still names an upstream, but that branch no longer exists on the remote.
+_Avoid_: Deleted upstream, stale upstream
