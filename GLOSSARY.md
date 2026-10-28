@@ -20,6 +20,10 @@ _Avoid_: Watched folder, registered folder, workspace
 Moving a clone's branch, picked by a person, up to the upstream commit seen when the list was made. Only a behind clone with nothing uncommitted can be fast-forwarded.
 _Avoid_: Pull, update
 
+**Upgrade**:
+Replacing just-fetch itself with its newest release, through the package manager that installed it.
+_Avoid_: Update, self-update
+
 ## Clone status
 
 **Up to date**:

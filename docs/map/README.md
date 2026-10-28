@@ -8,4 +8,5 @@ The territory map. A comment's why, trap and measured value go to a note here. N
 - [tracking-folders](tracking-folders.md): the tracked list, where it lives, a run over several folders, and `list` and `remove`.
 - [fast-forwarding](fast-forwarding.md): who is offered, the pick screen, and moving a picked clone to the planned commit.
 - [choosing-the-language](choosing-the-language.md): English or Korean, which wins, and where every sentence lives.
+- [upgrading](upgrading.md): `just-fetch upgrade`, what installed it, and what brew, scoop and a hand install each get.
 - [releasing](releasing.md): how a `v*` tag becomes a release, and what the tap and the bucket depend on.

@@ -5,6 +5,7 @@ use std::process::{Command, Output};
 
 use just_fetch::config::{CONFIG_DIR_VAR, Config, load, save};
 use just_fetch::lang::{Lang, SYSTEM_LANGUAGE_VAR};
+use just_fetch::upgrade::EXE_PATH_VAR;
 
 use common::{
     clone_with_upstream, commit, commit_file, empty_clone, git, push_file_from_elsewhere,
@@ -606,4 +607,154 @@ fn a_piped_table_and_errors_follow_the_language_too() {
         String::from_utf8_lossy(&out.stderr).contains("읽을 수 없음"),
         "{out:?}"
     );
+}
+
+/// `just-fetch upgrade`, as if it ran from `exe`.
+fn upgrading(exe: &Path) -> Command {
+    let mut command = just_fetch();
+    command.env(EXE_PATH_VAR, exe).arg("upgrade");
+    command
+}
+
+/// A file at `path`, with its folders.
+fn file_at(path: &Path) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "").unwrap();
+}
+
+/// A brew prefix holding just-fetch in its Cellar and a `bin/brew` that logs its arguments
+/// to `brew.log` and fails with 3 for the step named in `BREW_FAIL`. Returns just-fetch's
+/// path inside it.
+#[cfg(unix)]
+fn brew_prefix(root: &Path) -> std::path::PathBuf {
+    let exe = root.join("Cellar/just-fetch/0.2.0/bin/just-fetch");
+    file_at(&exe);
+    let brew = root.join("bin/brew");
+    std::fs::create_dir_all(brew.parent().unwrap()).unwrap();
+    std::fs::write(
+        &brew,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{}'\n[ \"$1\" = \"$BREW_FAIL\" ] && exit 3\nexit 0\n",
+            root.join("brew.log").display()
+        ),
+    )
+    .unwrap();
+    common::make_executable(&brew);
+    exe
+}
+
+#[cfg(unix)]
+fn brew_log(root: &Path) -> String {
+    std::fs::read_to_string(root.join("brew.log")).unwrap_or_default()
+}
+
+#[cfg(unix)]
+#[test]
+fn upgrade_from_brew_updates_brew_then_upgrades_just_fetch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let exe = brew_prefix(tmp.path());
+
+    let out = upgrading(&exe).output().unwrap();
+
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        brew_log(tmp.path()),
+        "update\nupgrade kihyun1998/tap/just-fetch\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn upgrade_run_through_brews_link_finds_the_cellar_behind_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let exe = brew_prefix(tmp.path());
+    let link = tmp.path().join("bin/just-fetch");
+    std::os::unix::fs::symlink(&exe, &link).unwrap();
+
+    let out = upgrading(&link).output().unwrap();
+
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        brew_log(tmp.path()),
+        "update\nupgrade kihyun1998/tap/just-fetch\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failing_brew_step_stops_the_upgrade_with_its_exit_code() {
+    for (step, log) in [
+        ("update", "update\n"),
+        ("upgrade", "update\nupgrade kihyun1998/tap/just-fetch\n"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = brew_prefix(tmp.path());
+
+        let out = upgrading(&exe).env("BREW_FAIL", step).output().unwrap();
+
+        assert_eq!(out.status.code(), Some(3), "{step}: {out:?}");
+        assert_eq!(brew_log(tmp.path()), log, "{step}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_brew_install_without_its_brew_says_where_it_looked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let exe = brew_prefix(tmp.path());
+    std::fs::remove_file(tmp.path().join("bin/brew")).unwrap();
+
+    let out = upgrading(&exe).output().unwrap();
+
+    let brew = tmp.path().canonicalize().unwrap().join("bin").join("brew");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains(&brew.display().to_string()),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn upgrade_from_scoop_says_which_command_to_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let exe = tmp
+        .path()
+        .join("scoop/apps/just-fetch/current/just-fetch.exe");
+    file_at(&exe);
+
+    let out = upgrading(&exe).output().unwrap();
+
+    assert!(out.status.success(), "{out:?}");
+    assert!(stdout(&out).contains("scoop update just-fetch"), "{out:?}");
+}
+
+#[test]
+fn upgrade_of_a_hand_install_points_to_the_releases() {
+    let tmp = tempfile::tempdir().unwrap();
+    let exe = tmp.path().join("tools/just-fetch");
+    file_at(&exe);
+
+    let out = upgrading(&exe).output().unwrap();
+
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        stdout(&out).contains("https://github.com/kihyun1998/just-fetch/releases"),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn upgrade_speaks_the_language_too() {
+    let tmp = tempfile::tempdir().unwrap();
+    let exe = tmp
+        .path()
+        .join("scoop/apps/just-fetch/current/just-fetch.exe");
+    file_at(&exe);
+
+    let out = upgrading(&exe)
+        .env(SYSTEM_LANGUAGE_VAR, "ko-KR")
+        .output()
+        .unwrap();
+
+    assert!(stdout(&out).contains("실행하세요"), "{out:?}");
 }

@@ -98,6 +98,11 @@ pub enum Text {
     ScreenFailed(String),
     CannotDraw,
     UnexpectedGitOutput(String),
+    UpgradingWithBrew(String),
+    BrewMissing(String),
+    BrewFailed(String),
+    UpgradeWithScoop,
+    UpgradeByHand(String),
 }
 
 /// `n` followed by `noun`, adding an `s` unless `n` is 1.
@@ -406,6 +411,26 @@ impl Text {
                 "this terminal cannot draw it",
                 "이 터미널은 화면을 그릴 수 없음",
             ),
+            UpgradingWithBrew(brew) => (
+                format!("upgrading just-fetch with {brew}"),
+                format!("{brew}로 just-fetch를 올립니다"),
+            ),
+            BrewMissing(brew) => (
+                format!("installed with brew, but there is no brew at {brew}"),
+                format!("brew로 설치됐지만 {brew}에 brew가 없음"),
+            ),
+            BrewFailed(step) => (
+                format!("brew {step} failed, so just-fetch was not upgraded"),
+                format!("brew {step}이 실패해 just-fetch를 올리지 못함"),
+            ),
+            UpgradeWithScoop => s(
+                "installed with scoop: run `scoop update just-fetch` once just-fetch has exited",
+                "scoop으로 설치됨: just-fetch가 끝난 뒤 `scoop update just-fetch`를 실행하세요",
+            ),
+            UpgradeByHand(url) => (
+                format!("installed by hand: get the newest archive from {url}"),
+                format!("직접 설치함: {url}에서 새 압축 파일을 받으세요"),
+            ),
             UnexpectedGitOutput(out) => (
                 format!("unexpected output from git rev-parse: {out}"),
                 format!("git rev-parse의 출력이 예상과 다름: {out}"),
@@ -505,6 +530,11 @@ mod tests {
             ScreenFailed(m()),
             CannotDraw,
             UnexpectedGitOutput(m()),
+            UpgradingWithBrew(m()),
+            BrewMissing(m()),
+            BrewFailed(m()),
+            UpgradeWithScoop,
+            UpgradeByHand(m()),
         ]
     }
 

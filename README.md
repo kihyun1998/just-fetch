@@ -55,6 +55,7 @@ just-fetch runs the `git` already installed, so it signs in the way your git doe
 just-fetch setup     # add folders to track
 just-fetch list      # show the tracked folders and where the list is kept
 just-fetch remove    # pick folders to stop tracking
+just-fetch upgrade   # bring just-fetch itself up to date
 just-fetch           # cover every tracked folder
 just-fetch PATH      # cover PATH this once
 ```
@@ -62,6 +63,8 @@ just-fetch PATH      # cover PATH this once
 `setup` asks for the language first (English or 한국어), then for folders one at a time; leave the answer empty to finish. Each folder is either a clone, or a folder whose subfolders are clones (one level down). They are scanned again on every run, so a clone you make later shows up by itself. The list is kept in `config.toml` under `~/Library/Application Support/just-fetch` on macOS and `%APPDATA%\just-fetch` on Windows.
 
 `list` shows each tracked folder with how many clones it holds, or `missing` with the reason when it cannot be read. `remove` lets you pick folders to drop (space picks, enter confirms, esc leaves), asks once more, and only then saves; it needs a terminal.
+
+`upgrade` uses what installed just-fetch. With Homebrew it runs `brew update` and then `brew upgrade kihyun1998/tap/just-fetch`. With Scoop it tells you to run `scoop update just-fetch` once just-fetch has exited, since Scoop will not update a program that is still running. Installed by hand, it points to the releases page.
 
 `PATH` covers one clone or folder for this run and leaves the tracked list alone. With nothing tracked and no path, just-fetch starts `setup` in a terminal, and otherwise says to run it.
 
