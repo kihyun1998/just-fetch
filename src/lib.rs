@@ -1,6 +1,8 @@
+pub mod config;
 pub mod fast_forward;
 pub mod fetch;
 pub mod git;
+pub mod lang;
 pub mod manage;
 pub mod pick;
 pub mod predict;
@@ -9,4 +11,4 @@ pub mod report;
 pub mod scan;
 pub mod setup;
 pub mod status;
-pub mod tracked;
+pub mod text;

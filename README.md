@@ -18,7 +18,7 @@ Needs you first (can't be picked here) (4)
 Already up to date (0)
 
 
-↑↓ move   space pick   a pick all   enter next   q quit
+↑↓ move   space pick   a pick all   enter next   q quit   l 한국어
 0 picked
 ```
 
@@ -58,7 +58,7 @@ just-fetch           # cover every tracked folder
 just-fetch PATH      # cover PATH this once
 ```
 
-`setup` asks for folders one at a time; leave the answer empty to finish. Each folder is either a clone, or a folder whose subfolders are clones (one level down). They are scanned again on every run, so a clone you make later shows up by itself. With more than one folder tracked, each folder's clones are listed under its path. The list is kept in `config.toml` under `~/Library/Application Support/just-fetch` on macOS and `%APPDATA%\just-fetch` on Windows.
+`setup` asks for the language first (English or 한국어), then for folders one at a time; leave the answer empty to finish. Each folder is either a clone, or a folder whose subfolders are clones (one level down). They are scanned again on every run, so a clone you make later shows up by itself. With more than one folder tracked, each folder's clones are listed under its path. The list is kept in `config.toml` under `~/Library/Application Support/just-fetch` on macOS and `%APPDATA%\just-fetch` on Windows.
 
 `list` shows each tracked folder with how many clones it holds, or `missing` with the reason when it cannot be read. `remove` lets you pick folders to drop (space picks, enter confirms, esc leaves), asks once more, and only then saves; it needs a terminal.
 
@@ -78,7 +78,11 @@ For each clone, just-fetch fetches the remote its current branch tracks. When th
 
 `dirty` means uncommitted changes to tracked files. `N untracked` counts new files; they don't count as dirty.
 
-In a terminal, the same clones show as the screen above instead, in three groups and in plain words: the ones it can bring up to date (behind, nothing uncommitted), the ones that need you first, and the ones already up to date. The cursor moves only over the first group (↑↓ or j/k). Space picks a clone, `a` picks all of them or, once all are picked, none, and enter shows what will be brought in; enter again does it, and any other key goes back. `q` or esc leaves with nothing changed. A list taller than the terminal scrolls with the cursor, and `f` and `b` move it a screen at a time. Clones with the same name in two tracked folders show their folder in front (`work/api`). A clone that changes while the screen is open (an edit, a new commit) is skipped. With nothing to bring in, the groups are printed and nothing is asked. A piped or scripted run only prints the lines above and changes nothing.
+In a terminal, the same clones show as the screen above instead, in three groups and in plain words: the ones it can bring up to date (behind, nothing uncommitted), the ones that need you first, and the ones already up to date. The cursor moves only over the first group (↑↓ or j/k). Space picks a clone, `a` picks all of them or, once all are picked, none, and enter shows what will be brought in; enter again does it, and any other key goes back. `q` or esc leaves with nothing changed, and `l` switches the language. A list taller than the terminal scrolls with the cursor, and `f` and `b` move it a screen at a time. Clones with the same name in two tracked folders show their folder in front (`work/api`). A clone that changes while the screen is open (an edit, a new commit) is skipped. With nothing to bring in, the groups are printed and nothing is asked. A piped or scripted run only prints the lines above and changes nothing.
+
+## Language
+
+just-fetch speaks English or Korean: the language `setup` saved, else your OS language (Korean when it is Korean, English otherwise). On the pick screen, `l` switches to the other one for the rest of that run. git's own messages and `--help` stay in English.
 
 ## License
 

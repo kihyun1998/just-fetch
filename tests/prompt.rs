@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::{clone_with_upstream, push_file_from_elsewhere};
-use just_fetch::tracked::{CONFIG_DIR_VAR, Tracked, load, save};
+use just_fetch::config::{CONFIG_DIR_VAR, Config, load, save};
+use just_fetch::lang::SYSTEM_LANGUAGE_VAR;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -33,6 +34,15 @@ const CURSOR_QUERY: &str = "\x1b[6n";
 impl Terminal {
     fn spawn(mut command: CommandBuilder) -> Self {
         command.env("TERM", "xterm-256color");
+        if command.get_env(SYSTEM_LANGUAGE_VAR).is_none() {
+            command.env(SYSTEM_LANGUAGE_VAR, "en");
+        }
+        if command.get_env(CONFIG_DIR_VAR).is_none() {
+            command.env(
+                CONFIG_DIR_VAR,
+                std::env::temp_dir().join("just-fetch-tests-no-config"),
+            );
+        }
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows: 40,
@@ -429,7 +439,8 @@ fn clones_sharing_a_name_are_told_apart_by_their_folder() {
         push_file_from_elsewhere(folder, "api", "theirs.txt", "theirs\n");
     }
     clone_with_upstream(&work, "solo");
-    let tracked = Tracked {
+    let tracked = Config {
+        language: None,
         folders: vec![work.clone(), personal.clone()],
     };
     save(&config.join("config.toml"), &tracked).unwrap();
@@ -495,6 +506,12 @@ fn with_config(config_dir: &Path, args: &[&str]) -> Terminal {
     Terminal::spawn(command)
 }
 
+/// Keeps the language setup offers first, the one already in use.
+fn answer_language(terminal: &mut Terminal) {
+    terminal.wait_for("Language");
+    terminal.press("\r");
+}
+
 /// The tracked folders saved under `config_dir`.
 fn tracked_in(config_dir: &Path) -> Vec<std::path::PathBuf> {
     load(&config_dir.join("config.toml")).unwrap().folders
@@ -511,6 +528,7 @@ fn setup_saves_each_folder_typed_until_an_empty_answer() {
     clone_with_upstream(&code, "alpha");
 
     let mut terminal = with_config(&config, &["setup"]);
+    answer_language(&mut terminal);
     for (n, folder) in [&code, &notes].into_iter().enumerate() {
         terminal.wait_for_nth("Foldertotrack", n + 1);
         terminal.press(&format!("{}\r", folder.display()));
@@ -533,6 +551,7 @@ fn with_nothing_tracked_a_run_at_a_terminal_starts_setup_and_then_covers_it() {
     two_behind(&code);
 
     let mut terminal = with_config(&config, &[]);
+    answer_language(&mut terminal);
     terminal.wait_for("Foldertotrack");
     terminal.press(&format!("{}\r", code.display()));
     terminal.wait_for("tracking");
@@ -553,6 +572,7 @@ fn a_folder_added_before_setup_is_interrupted_stays_tracked() {
     std::fs::create_dir(&code).unwrap();
 
     let mut terminal = with_config(&config, &["setup"]);
+    answer_language(&mut terminal);
     terminal.wait_for("Foldertotrack");
     terminal.press(&format!("{}\r", code.display()));
     terminal.wait_for_nth("Foldertotrack", 2);
@@ -570,6 +590,7 @@ fn a_folder_pasted_in_quotes_is_tracked() {
     std::fs::create_dir(&code).unwrap();
 
     let mut terminal = with_config(&config, &["setup"]);
+    answer_language(&mut terminal);
     terminal.wait_for("Foldertotrack");
     terminal.press(&format!("\"{}\"\r", code.display()));
     terminal.wait_for_nth("Foldertotrack", 2);
@@ -584,6 +605,7 @@ fn a_run_whose_setup_adds_nothing_says_nothing_is_tracked() {
     let tmp = tempfile::tempdir().unwrap();
 
     let mut terminal = with_config(&tmp.path().join("config"), &[]);
+    answer_language(&mut terminal);
     terminal.wait_for("Foldertotrack");
     terminal.press("\r");
     let shown = plain(&terminal.finish());
@@ -593,7 +615,8 @@ fn a_run_whose_setup_adds_nothing_says_nothing_is_tracked() {
 
 /// `just-fetch remove` with `folders` tracked under `config_dir`, its list up.
 fn removing(config_dir: &Path, folders: &[&Path]) -> Terminal {
-    let tracked = Tracked {
+    let tracked = Config {
+        language: None,
         folders: folders.iter().map(|f| f.to_path_buf()).collect(),
     };
     save(&config_dir.join("config.toml"), &tracked).unwrap();
@@ -666,6 +689,46 @@ fn answering_no_to_remove_changes_nothing() {
     terminal.finish_ok();
 
     assert_eq!(tracked_in(&config), [code, gone]);
+}
+
+#[test]
+fn l_switches_the_screen_and_what_follows_it_to_the_other_language() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    two_behind(root);
+
+    let mut terminal = open(root);
+    terminal.press("l");
+    terminal.wait_for("원격에새커밋이있는저장소를골라");
+    terminal.wait_for("받아올수있음(2)");
+    terminal.press(" ");
+    terminal.press("\r");
+    terminal.wait_for("이1개를원격최신으로받아옵니다:");
+    terminal.press("\r");
+    let shown = plain(&terminal.finish_ok());
+
+    assert!(shown.contains("alpha:받아옴"), "{shown}");
+    assert!(pulled(root, "alpha"));
+}
+
+#[test]
+fn setup_saves_the_language_picked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+
+    let mut terminal = with_config(&config, &["setup"]);
+    terminal.wait_for("Language");
+    terminal.press("\x1b[B");
+    terminal.press("\r");
+    terminal.wait_for("추적할폴더");
+    terminal.press("\r");
+    let shown = plain(&terminal.finish_ok());
+
+    assert!(shown.contains("저장함:"), "{shown}");
+    assert_eq!(
+        load(&config.join("config.toml")).unwrap().language,
+        Some(just_fetch::lang::Lang::Ko)
+    );
 }
 
 /// just-fetch on `root` inside the terminal, with its output piped through another program.

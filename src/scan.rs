@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::git::{self, GitMissing};
 use crate::status::{self, LocalState};
+use crate::text::Text;
 
 /// A clone found under the scan root, with its local state or why git could not read it.
 #[derive(Debug)]
@@ -30,7 +31,8 @@ impl fmt::Display for ScanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ScanError::Unreadable(path, error) => {
-                write!(f, "cannot read {}: {error}", path.display())
+                let text = Text::CannotRead(path.display().to_string(), error.to_string());
+                write!(f, "{text}")
             }
             ScanError::GitMissing(missing) => missing.fmt(f),
         }

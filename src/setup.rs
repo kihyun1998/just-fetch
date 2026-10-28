@@ -1,21 +1,39 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use crate::manage::count;
+use crate::config::{self, Config};
+use crate::lang::{self, Lang};
 use crate::prompt::at_terminal;
 use crate::scan::scan;
-use crate::tracked::{self, Tracked};
+use crate::text::Text;
 
-/// Asks for folders to track, one at a time, until an empty answer, saving each to `file`
-/// alongside any already tracked as soon as it is added.
-pub fn setup(file: &Path) -> Result<Tracked, Box<dyn Error>> {
+/// The languages setup offers, each named in itself.
+const LANGUAGES: [(Lang, &str); 2] = [(Lang::En, "English"), (Lang::Ko, "한국어")];
+
+/// Asks for the language, then for folders to track one at a time until an empty answer,
+/// saving each answer to `file` alongside what is already there as soon as it is given.
+pub fn setup(file: &Path) -> Result<Config, Box<dyn Error>> {
     if !at_terminal() {
-        return Err("setup asks questions, so it needs a terminal".into());
+        return Err(Text::SetupNeedsTerminal.to_string().into());
     }
-    let mut tracked = tracked::load(file)?;
+    let mut tracked = config::load(file)?;
+    let names: Vec<&str> = LANGUAGES.iter().map(|(_, name)| *name).collect();
+    let now = LANGUAGES
+        .iter()
+        .position(|(lang, _)| *lang == lang::current())
+        .unwrap_or(0);
+    let chosen = dialoguer::Select::new()
+        .with_prompt(Text::LanguagePrompt.to_string())
+        .items(&names)
+        .default(now)
+        .interact()?;
+    let (language, _) = LANGUAGES[chosen];
+    lang::set(language);
+    tracked.language = Some(language);
+    config::save(file, &tracked)?;
     loop {
         let answer: String = dialoguer::Input::new()
-            .with_prompt("Folder to track (leave empty to finish)")
+            .with_prompt(Text::FolderToTrack.to_string())
             .allow_empty(true)
             .interact_text()?;
         let answer = unquote(answer.trim());
@@ -25,16 +43,16 @@ pub fn setup(file: &Path) -> Result<Tracked, Box<dyn Error>> {
         let folder = expand_home(answer);
         match tracked.add(&folder) {
             Ok(true) => {
-                tracked::save(file, &tracked)?;
+                config::save(file, &tracked)?;
                 let stored = tracked.folders.last().expect("just added");
                 let clones = scan(stored).map(|found| found.len()).unwrap_or(0);
-                println!("tracking {} ({})", stored.display(), count(clones, "clone"));
+                println!("{}", Text::Tracking(stored.display().to_string(), clones));
             }
-            Ok(false) => println!("already tracked: {}", folder.display()),
+            Ok(false) => println!("{}", Text::AlreadyTracked(folder.display().to_string())),
             Err(message) => println!("{message}"),
         }
     }
-    println!("saved to {}", file.display());
+    println!("{}", Text::SavedTo(file.display().to_string()));
     Ok(tracked)
 }
 
