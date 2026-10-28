@@ -17,6 +17,8 @@ dialoguer = "0.11"
 
 [dev-dependencies]
 portable-pty = "0.9"
+# PROTOTYPE only: examples/prototype_select.rs
+console = "0.15"
 
 [profile.release]
 strip = true
