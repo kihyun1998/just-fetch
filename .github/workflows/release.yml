@@ -142,7 +142,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          notes=""
+          if [ "$(jq -r .object.type <<<"${ref}")" = "tag" ]; then
+            notes="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/$(jq -r .object.sha <<<"${ref}")" --jq .message)"
+          fi
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
+            --notes "${notes}" \
             --generate-notes

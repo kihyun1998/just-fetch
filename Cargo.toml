@@ -1,6 +1,6 @@
 [package]
 name = "just-fetch"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Finds which local clones are out of step with their remotes, and fetches the ones you pick"

@@ -9,7 +9,13 @@ How a `v*` tag becomes a GitHub Release: `.github/workflows/release.yml`, modell
 - **gate** runs fmt, clippy and the tests on windows-latest and macos-latest. On a tag it first checks that the tag is `v` + the version in `Cargo.toml`.
 - **build** makes one archive per target: `x86_64-apple-darwin` and `aarch64-apple-darwin` on macos-latest, `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` on windows-latest.
 - **verify** unpacks each archive on a runner of its own platform and runs the binary there: macos-latest (arm64), macos-15-intel, windows-latest (x64) and windows-11-arm. Platform labels come from GitHub's runner reference. A binary must print `just-fetch <Cargo.toml version>` for `--version`, list an empty folder, and list the checkout with no `error:` row. Only then is anything published.
-- **release** writes `SHA256SUMS` over the four archives and creates the release with generated notes. It is the only job with `contents: write`.
+- **release** writes `SHA256SUMS` over the four archives and creates the release. Its notes are the tag's annotation, read through the API (`git/ref/tags` then `git/tags`, as a checkout may not keep the annotation), followed by the notes GitHub generates from the merged pull requests (`gh release create --notes … --generate-notes`, which puts the given notes first). A lightweight tag gives no annotation and the generated notes alone. It is the only job with `contents: write`.
+
+## Cutting one
+
+1. Bump `version` in `Cargo.toml` (and `Cargo.lock` with it) in a pull request, and merge it.
+2. Tag the merge commit with an annotated tag whose message is the release's summary for people who use just-fetch: what is new, and how to upgrade. `git tag -a v<version> -F <file>`.
+3. Push the tag. The tap and the bucket pick the release up on their next hourly `auto-update`, or at once when that workflow is started by hand. The bucket's `test-install` does not run on the bucket's own update commit, so it is started by hand to install the new version.
 
 ## What the package managers depend on
 
@@ -23,6 +29,6 @@ Changing any of these breaks the tap or the bucket, whose auto-update scripts bu
 
 - No build-provenance attestation. The maintainer chose `SHA256SUMS` alone, where just-shield attests its archives.
 - No Linux targets. just-fetch is for Windows and macOS.
-- No CHANGELOG. Each release's notes are generated from its pull requests (`gh release create --generate-notes`).
+- No CHANGELOG. A release's notes are its tag's summary and the list generated from its pull requests. Chosen by the maintainer, who added the summary at 0.3.0.
 - The gate runs on windows-latest and macos-latest, not on windows-11-arm, which CI covers on every pull request. The verify job still runs the arm64 Windows binary on windows-11-arm before anything is published.
 - No third-party build tool. Like just-shield, the workflow is written by hand, and every action is pinned to a commit.

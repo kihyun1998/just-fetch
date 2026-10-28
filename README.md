@@ -38,6 +38,8 @@ scoop bucket add kihyun1998 https://github.com/kihyun1998/scoop-bucket
 scoop install just-fetch
 ```
 
+To upgrade later, run `just-fetch upgrade`, or `brew upgrade just-fetch` / `scoop update just-fetch` yourself.
+
 **Either**, by hand: download the archive for your machine from [Releases](https://github.com/kihyun1998/just-fetch/releases), check it against `SHA256SUMS`, and put `just-fetch` (or `just-fetch.exe`) on your `PATH`.
 
 | Machine | Archive |
