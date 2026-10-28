@@ -1,57 +1,56 @@
 use std::error::Error;
 use std::path::Path;
 
+use crate::config;
 use crate::prompt::at_terminal;
 use crate::scan::{ScanError, scan};
-use crate::tracked;
-
-/// `n` followed by `noun`, adding an `s` unless `n` is 1.
-pub fn count(n: usize, noun: &str) -> String {
-    match n {
-        1 => format!("1 {noun}"),
-        _ => format!("{n} {noun}s"),
-    }
-}
+use crate::text::Text;
 
 /// Prints each tracked folder with the clones found in it, or why it cannot be read, then
 /// where the list is kept.
 pub fn list(file: &Path) -> Result<(), Box<dyn Error>> {
-    let tracked = tracked::load(file)?;
+    let tracked = config::load(file)?;
     if tracked.folders.is_empty() {
-        println!("nothing is tracked yet: run `just-fetch setup` to add folders");
+        println!("{}", Text::NothingTracked);
     }
     for folder in &tracked.folders {
         match scan(folder) {
-            Ok(found) => println!("{}  {}", folder.display(), count(found.len(), "clone")),
-            Err(ScanError::Unreadable(_, e)) => println!("{}  missing: {e}", folder.display()),
+            Ok(found) => println!("{}", Text::ListClones(path(folder), found.len())),
+            Err(ScanError::Unreadable(_, e)) => {
+                println!("{}", Text::ListMissing(path(folder), e.to_string()))
+            }
             Err(missing @ ScanError::GitMissing(_)) => return Err(missing.into()),
         }
     }
-    println!("config: {}", file.display());
+    println!("{}", Text::ConfigAt(path(file)));
     Ok(())
+}
+
+fn path(path: &Path) -> String {
+    path.display().to_string()
 }
 
 /// Asks which tracked folders to stop tracking and, once confirmed, saves the rest to
 /// `file`. Leaving without a pick, or answering no, changes nothing.
 pub fn remove(file: &Path) -> Result<(), Box<dyn Error>> {
-    let mut tracked = tracked::load(file)?;
+    let mut tracked = config::load(file)?;
     if tracked.folders.is_empty() {
-        println!("nothing is tracked, so there is nothing to remove");
+        println!("{}", Text::NothingToRemove);
         return Ok(());
     }
     if !at_terminal() {
-        return Err("remove asks which folders to drop, so it needs a terminal".into());
+        return Err(Text::RemoveNeedsTerminal.to_string().into());
     }
     let labels: Vec<String> = tracked
         .folders
         .iter()
         .map(|folder| match folder.is_dir() {
             true => folder.display().to_string(),
-            false => format!("{}  (missing)", folder.display()),
+            false => format!("{}  {}", folder.display(), Text::MissingMark),
         })
         .collect();
     let Some(picked) = dialoguer::MultiSelect::new()
-        .with_prompt("Folders to stop tracking (space picks, enter confirms, esc leaves)")
+        .with_prompt(Text::StopTrackingPrompt.to_string())
         .items(&labels)
         .interact_opt()?
     else {
@@ -61,7 +60,7 @@ pub fn remove(file: &Path) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let sure = dialoguer::Confirm::new()
-        .with_prompt(format!("Stop tracking {}?", count(picked.len(), "folder")))
+        .with_prompt(Text::StopTracking(picked.len()).to_string())
         .interact_opt()?;
     if sure != Some(true) {
         return Ok(());
@@ -72,7 +71,7 @@ pub fn remove(file: &Path) -> Result<(), Box<dyn Error>> {
         index += 1;
         keep
     });
-    tracked::save(file, &tracked)?;
-    println!("saved to {}", file.display());
+    config::save(file, &tracked)?;
+    println!("{}", Text::SavedTo(path(file)));
     Ok(())
 }

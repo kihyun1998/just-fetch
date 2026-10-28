@@ -4,13 +4,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
+use crate::text::Text;
+
 /// git is not on PATH, so nothing can be asked of any clone.
 #[derive(Debug)]
 pub struct GitMissing;
 
 impl fmt::Display for GitMissing {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("git was not found on PATH")
+        write!(f, "{}", Text::GitMissing)
     }
 }
 
@@ -68,12 +70,7 @@ pub fn run(clone: &Path, args: &[&str]) -> Result<String, GitError> {
 
 /// [`run`], handing back the exit code for the caller to read.
 pub fn run_for_exit_code(clone: &Path, args: &[&str]) -> Result<Ran, GitError> {
-    let no_hooks = no_hooks_dir().ok_or_else(|| {
-        GitError::Failed(
-            "cannot find just-fetch's own path, so the clone's hooks cannot be turned off"
-                .to_string(),
-        )
-    })?;
+    let no_hooks = no_hooks_dir().ok_or_else(|| GitError::Failed(Text::NoOwnPath.to_string()))?;
     let hooks_off = format!("core.hooksPath={}", no_hooks.display());
     start(clone, &["-c", &hooks_off], args)
 }
@@ -88,9 +85,9 @@ pub fn head_and_upstream(clone: &Path) -> Result<(String, String), GitError> {
     let out = run(clone, &["rev-parse", "HEAD", "@{upstream}"])?;
     match out.split_whitespace().collect::<Vec<_>>().as_slice() {
         [head, upstream] => Ok((head.to_string(), upstream.to_string())),
-        _ => Err(GitError::Failed(format!(
-            "unexpected rev-parse output: {out:?}"
-        ))),
+        _ => Err(GitError::Failed(
+            Text::UnexpectedGitOutput(format!("{out:?}")).to_string(),
+        )),
     }
 }
 

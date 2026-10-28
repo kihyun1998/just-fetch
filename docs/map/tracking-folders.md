@@ -1,6 +1,6 @@
 # Tracking folders
 
-How a run with no path knows what to cover: `just-fetch setup` (`setup::setup`) asks for folders one at a time and saves them with `tracked::save`; a run with no path loads them with `tracked::load`, scans each with `scan::scan_folders`, and fetches every clone found in one batch (see [fetching-clones](fetching-clones.md)). Scanning on every run is what makes a clone made after setup show up without setting anything up again.
+How a run with no path knows what to cover: `just-fetch setup` (`setup::setup`) asks for the language (see [choosing-the-language](choosing-the-language.md)), then for folders one at a time and saves them with `config::save`; a run with no path loads them with `config::load`, scans each with `scan::scan_folders`, and fetches every clone found in one batch (see [fetching-clones](fetching-clones.md)). Scanning on every run is what makes a clone made after setup show up without setting anything up again.
 
 ## Where the list lives
 

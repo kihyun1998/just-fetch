@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::fetch::Refreshed;
 use crate::git::{self, GitError, GitMissing};
 use crate::status::CloneStatus;
+use crate::text::Text;
 
 /// What a trial merge of a diverged clone with its upstream says would happen.
 #[derive(Debug, PartialEq, Eq)]
@@ -10,7 +11,9 @@ pub enum Prediction {
     Clean,
     /// The files that would be left in conflict, in git's order.
     Conflicts(Vec<String>),
-    /// No prediction could be made, and why.
+    /// No prediction could be made: the installed git is older than [`MINIMUM_GIT`].
+    NeedsNewerGit,
+    /// No prediction could be made, and git's reason.
     Unavailable(String),
 }
 
@@ -63,10 +66,7 @@ pub fn git_version() -> Result<Option<GitVersion>, GitMissing> {
 /// config and attributes play no part and are left as they were.
 pub fn predict(clone: &Path, version: Option<GitVersion>) -> Result<Prediction, GitMissing> {
     if version.is_none_or(|v| v < MINIMUM_GIT) {
-        return Ok(Prediction::Unavailable(format!(
-            "needs git {}.{} or later",
-            MINIMUM_GIT.major, MINIMUM_GIT.minor
-        )));
+        return Ok(Prediction::NeedsNewerGit);
     }
     Ok(git::split_missing(try_predict(clone))?.unwrap_or_else(Prediction::Unavailable))
 }
@@ -113,9 +113,9 @@ impl Scratch {
         let (format, objects) = match probe.lines().collect::<Vec<_>>().as_slice() {
             [format, objects] => (format.to_string(), PathBuf::from(objects)),
             _ => {
-                return Err(GitError::Failed(format!(
-                    "unexpected rev-parse output: {probe:?}"
-                )));
+                return Err(GitError::Failed(
+                    Text::UnexpectedGitOutput(format!("{probe:?}")).to_string(),
+                ));
             }
         };
         let dir = tempfile::Builder::new()

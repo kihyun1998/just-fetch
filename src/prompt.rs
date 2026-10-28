@@ -6,9 +6,11 @@ use console::Term;
 use crate::fast_forward::{Outcome, fast_forward, offerable, plan};
 use crate::fetch::Refreshed;
 use crate::git;
+use crate::lang;
 use crate::pick::{Row, Screen, Step, describe};
 use crate::predict::Prediction;
 use crate::report::one_line;
+use crate::text::Text;
 
 /// Whether stdin, stdout and stderr are all terminals.
 pub fn at_terminal() -> bool {
@@ -42,24 +44,25 @@ pub fn offer_fast_forward(
         });
         plans.push(planned.and_then(Result::ok));
     }
-    let mut screen = Screen::new(rows.clone());
+    let mut screen = Screen::new(rows.clone(), lang::current());
     if !screen.has_pickable() {
         for line in screen.summary() {
             println!("{line}");
         }
         return Ok(());
     }
-    let picked = show(&mut screen).map_err(|e| format!("the pick screen failed: {e}"))?;
+    let picked = show(&mut screen).map_err(|e| Text::ScreenFailed(e.to_string()).to_string());
+    lang::set(screen.lang());
+    let picked = picked?;
     for i in picked {
         let Some(planned) = &plans[i] else { continue };
         let label = &rows[i].label;
-        match fast_forward(&refreshed[i].found.path, planned)? {
-            Outcome::Updated => println!("{label}: updated"),
-            Outcome::Changed(what) => {
-                println!("{label}: skipped: {what} since the list was made")
-            }
-            Outcome::Failed(message) => println!("{label}: failed: {}", one_line(&message)),
-        }
+        let text = match fast_forward(&refreshed[i].found.path, planned)? {
+            Outcome::Updated => Text::Updated(label.clone()),
+            Outcome::Changed(change) => Text::Skipped(label.clone(), change),
+            Outcome::Failed(message) => Text::Failed(label.clone(), one_line(&message)),
+        };
+        println!("{text}");
     }
     Ok(())
 }
@@ -95,7 +98,7 @@ fn labels(refreshed: &[Refreshed]) -> Vec<String> {
 fn show(screen: &mut Screen) -> io::Result<Vec<usize>> {
     let term = Term::stdout();
     if !term.features().colors_supported() {
-        return Err(io::Error::other("this terminal cannot draw it"));
+        return Err(io::Error::other(Text::CannotDraw.to_string()));
     }
     let _alternate = Alternate::enter(&term)?;
     loop {

@@ -1,6 +1,7 @@
 use crate::fetch::{Fetch, Refreshed};
 use crate::predict::Prediction;
 use crate::status::{CloneStatus, Head, LocalState};
+use crate::text::Text;
 
 /// The table: one row per clone, names padded to the longest.
 pub fn render(refreshed: &[Refreshed], predictions: &[Option<Prediction>]) -> String {
@@ -15,7 +16,7 @@ pub fn render(refreshed: &[Refreshed], predictions: &[Option<Prediction>]) -> St
         .map(|(r, prediction)| {
             let detail = match &r.found.state {
                 Ok(state) => describe(state, &r.fetch, prediction.as_ref()),
-                Err(message) => format!("error: {}", one_line(message)),
+                Err(message) => Text::RowError(one_line(message)).to_string(),
             };
             format!("{:<width$}  {detail}\n", r.found.name)
         })
@@ -25,38 +26,40 @@ pub fn render(refreshed: &[Refreshed], predictions: &[Option<Prediction>]) -> St
 fn describe(state: &LocalState, fetch: &Fetch, prediction: Option<&Prediction>) -> String {
     let head = match &state.head {
         Head::Branch(name) => name.clone(),
-        Head::Unborn(name) => format!("{name} (no commits)"),
-        Head::Detached => "(detached)".to_string(),
+        Head::Unborn(name) => Text::NoCommitsHead(name.clone()).to_string(),
+        Head::Detached => Text::Detached.to_string(),
     };
     let mut parts = vec![head];
     if let Some(upstream) = &state.upstream {
         parts.push(format!("-> {upstream}"));
     }
     match fetch {
-        Fetch::Failed(message) => parts.push(format!("fetch failed: {}", one_line(message))),
+        Fetch::Failed(message) => parts.push(Text::FetchFailed(one_line(message)).to_string()),
+        Fetch::Refused(key) => parts.push(Text::FetchRefused(key.clone()).to_string()),
         Fetch::Skipped | Fetch::Fetched => parts.extend(standing(&state.clone_status())),
     }
     parts.extend(prediction.map(foretell));
     if state.dirty {
-        parts.push("dirty".to_string());
+        parts.push(Text::Dirty.to_string());
     }
     if state.untracked > 0 {
-        parts.push(format!("{} untracked", state.untracked));
+        parts.push(Text::Untracked(state.untracked).to_string());
     }
     parts.join("  ")
 }
 
 /// `None` for a branch with no commits, whose head already says so.
 fn standing(status: &CloneStatus) -> Option<String> {
-    Some(match status {
-        CloneStatus::NoUpstream => "no upstream".to_string(),
+    let text = match status {
+        CloneStatus::NoUpstream => Text::NoUpstream,
         CloneStatus::NoCommits => return None,
-        CloneStatus::GoneUpstream => "upstream gone".to_string(),
-        CloneStatus::UpToDate => "up to date".to_string(),
-        CloneStatus::Behind(n) => format!("behind {n}"),
-        CloneStatus::Ahead(n) => format!("ahead {n}"),
-        CloneStatus::Diverged { ahead, behind } => format!("diverged +{ahead} -{behind}"),
-    })
+        CloneStatus::GoneUpstream => Text::UpstreamGone,
+        CloneStatus::UpToDate => Text::UpToDate,
+        CloneStatus::Behind(n) => Text::Behind(*n),
+        CloneStatus::Ahead(n) => Text::Ahead(*n),
+        CloneStatus::Diverged { ahead, behind } => Text::Diverged(*ahead, *behind),
+    };
+    Some(text.to_string())
 }
 
 /// git's message with its lines joined, so it stays on its clone's row.
@@ -69,30 +72,14 @@ pub fn one_line(message: &str) -> String {
         .join("; ")
 }
 
-/// How many conflicted files a row names before counting the rest.
-const CONFLICTS_SHOWN: usize = 5;
-
-/// The first conflicted files, each kept on one line, then how many more there are.
-pub fn conflict_list(files: &[String]) -> String {
-    let shown = files[..files.len().min(CONFLICTS_SHOWN)]
-        .iter()
-        .map(|name| name.replace('\n', "\\n"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    match files.len().saturating_sub(CONFLICTS_SHOWN) {
-        0 => shown,
-        more => format!("{shown} (+{more} more)"),
-    }
-}
-
 fn foretell(prediction: &Prediction) -> String {
-    match prediction {
-        Prediction::Clean => "merges cleanly".to_string(),
-        Prediction::Conflicts(files) => format!("conflict: {}", conflict_list(files)),
-        Prediction::Unavailable(reason) => {
-            format!("conflict check unavailable: {}", one_line(reason))
-        }
-    }
+    let text = match prediction {
+        Prediction::Clean => Text::MergesCleanly,
+        Prediction::Conflicts(files) => Text::Conflict(files.clone()),
+        Prediction::NeedsNewerGit => Text::ConflictCheckNeedsGit,
+        Prediction::Unavailable(reason) => Text::ConflictCheckUnavailable(one_line(reason)),
+    };
+    text.to_string()
 }
 
 #[cfg(test)]
@@ -157,12 +144,12 @@ mod tests {
     #[test]
     fn an_unavailable_prediction_says_why_on_one_line() {
         let porcelain = format!("{TRACKING}# branch.ab +1 -1\n");
-        let prediction = Prediction::Unavailable("needs git 2.38\nor later".into());
+        let prediction = Prediction::Unavailable("fatal: bad\nobject".into());
         let out = row(&porcelain, Fetch::Fetched, Some(prediction));
         assert_eq!(
             out,
             "repo  main  -> origin/main  diverged +1 -1  \
-             conflict check unavailable: needs git 2.38; or later\n"
+             conflict check unavailable: fatal: bad; object\n"
         );
     }
 

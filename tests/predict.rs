@@ -119,18 +119,15 @@ fn a_git_older_than_the_minimum_cannot_predict() {
         ("README.md", "theirs\n"),
     );
 
-    match predict(
+    let prediction = predict(
         &clone,
         Some(GitVersion {
             major: 2,
             minor: 37,
         }),
     )
-    .unwrap()
-    {
-        Prediction::Unavailable(reason) => assert!(reason.contains("2.38"), "{reason}"),
-        other => panic!("expected no prediction, got {other:?}"),
-    }
+    .unwrap();
+    assert_eq!(prediction, Prediction::NeedsNewerGit);
 }
 
 /// Everything a prediction must leave alone: refs, HEAD, index, working tree, objects.

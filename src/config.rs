@@ -1,12 +1,30 @@
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
-/// The folders a run with no path covers, as saved by `just-fetch setup`.
+use crate::lang::Lang;
+use crate::text::Text;
+
+/// What `just-fetch setup` saves: the folders a run with no path covers, and the language.
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Tracked {
+pub struct Config {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "known_language"
+    )]
+    pub language: Option<Lang>,
     #[serde(default)]
     pub folders: Vec<PathBuf>,
+}
+
+/// A saved language just-fetch speaks, or `None` for any other value.
+fn known_language<'de, D: Deserializer<'de>>(value: D) -> Result<Option<Lang>, D::Error> {
+    Ok(match Option::<String>::deserialize(value)?.as_deref() {
+        Some("en") => Some(Lang::En),
+        Some("ko") => Some(Lang::Ko),
+        _ => None,
+    })
 }
 
 /// The variable that names another folder for the config file.
@@ -22,18 +40,23 @@ pub fn config_file() -> Option<PathBuf> {
 }
 
 /// Reads the config file; a file that does not exist yet is an empty list.
-pub fn load(file: &Path) -> Result<Tracked, String> {
+pub fn load(file: &Path) -> Result<Config, String> {
     let text = match std::fs::read_to_string(file) {
         Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Tracked::default()),
-        Err(e) => return Err(format!("cannot read {}: {e}", file.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
+        Err(e) => {
+            return Err(Text::CannotRead(file.display().to_string(), e.to_string()).to_string());
+        }
     };
-    toml::from_str(&text).map_err(|e| format!("cannot read {}: {e}", file.display()))
+    toml::from_str(&text)
+        .map_err(|e| Text::CannotRead(file.display().to_string(), e.to_string()).to_string())
 }
 
 /// Writes the config file, making its folder when needed.
-pub fn save(file: &Path, tracked: &Tracked) -> Result<(), String> {
-    let fail = |e: &dyn std::fmt::Display| format!("cannot write {}: {e}", file.display());
+pub fn save(file: &Path, tracked: &Config) -> Result<(), String> {
+    let fail = |e: &dyn std::fmt::Display| {
+        Text::CannotWrite(file.display().to_string(), e.to_string()).to_string()
+    };
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| fail(&e))?;
     }
@@ -41,14 +64,14 @@ pub fn save(file: &Path, tracked: &Tracked) -> Result<(), String> {
     std::fs::write(file, text).map_err(|e| fail(&e))
 }
 
-impl Tracked {
+impl Config {
     /// Adds `folder` as an absolute path, unless it is already tracked under any spelling.
     /// `false` when it was.
     pub fn add(&mut self, folder: &Path) -> Result<bool, String> {
-        let refuse = |why: String| format!("cannot track {}: {why}", folder.display());
+        let refuse = |why: String| Text::CannotTrack(folder.display().to_string(), why).to_string();
         let same = folder.canonicalize().map_err(|e| refuse(e.to_string()))?;
         if !same.is_dir() {
-            return Err(refuse("not a folder".to_string()));
+            return Err(refuse(Text::NotAFolder.to_string()));
         }
         if self
             .folders
@@ -72,7 +95,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         assert_eq!(
             load(&tmp.path().join("nope/config.toml")).unwrap(),
-            Tracked::default()
+            Config::default()
         );
     }
 
@@ -80,7 +103,8 @@ mod tests {
     fn folders_survive_a_save_and_load_including_backslashes() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("sub/config.toml");
-        let tracked = Tracked {
+        let tracked = Config {
+            language: None,
             folders: vec![
                 PathBuf::from("/srv/code"),
                 PathBuf::from(r"C:\Users\me\code"),
@@ -97,7 +121,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let folder = tmp.path().join("code");
         std::fs::create_dir_all(folder.join("sub")).unwrap();
-        let mut tracked = Tracked::default();
+        let mut tracked = Config::default();
 
         assert!(tracked.add(&folder).unwrap());
         assert!(!tracked.add(&folder.join("sub").join("..")).unwrap());
@@ -108,7 +132,7 @@ mod tests {
     #[test]
     fn a_folder_that_does_not_exist_is_refused() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut tracked = Tracked::default();
+        let mut tracked = Config::default();
         assert!(tracked.add(&tmp.path().join("missing")).is_err());
         assert!(tracked.folders.is_empty());
     }
@@ -118,9 +142,22 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("notes.txt");
         std::fs::write(&file, "").unwrap();
-        let mut tracked = Tracked::default();
+        let mut tracked = Config::default();
         assert!(tracked.add(&file).unwrap_err().contains("not a folder"));
         assert!(tracked.folders.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_language_is_as_if_none_were_saved() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("config.toml");
+        std::fs::write(&file, "language = \"fr\"\nfolders = [\"/srv/code\"]\n").unwrap();
+        let config = load(&file).unwrap();
+        assert_eq!(config.language, None);
+        assert_eq!(config.folders, [PathBuf::from("/srv/code")]);
+
+        std::fs::write(&file, "language = \"ko\"\n").unwrap();
+        assert_eq!(load(&file).unwrap().language, Some(Lang::Ko));
     }
 
     #[test]

@@ -3,16 +3,16 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use just_fetch::config::{self, config_file};
 use just_fetch::fetch::fetch_all;
+use just_fetch::lang;
 use just_fetch::manage::{list, remove};
 use just_fetch::predict::predict_diverged;
 use just_fetch::prompt::{at_terminal, offer_fast_forward};
 use just_fetch::report::render;
 use just_fetch::scan::{Folder, scan, scan_folders};
 use just_fetch::setup::setup;
-use just_fetch::tracked::{self, config_file};
-
-const NOTHING_TRACKED: &str = "no folders are tracked yet: run `just-fetch setup` to add some";
+use just_fetch::text::Text;
 
 /// Fetches your clones and shows how each stands against its upstream.
 #[derive(Parser)]
@@ -45,7 +45,11 @@ fn main() -> ExitCode {
 }
 
 fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let file = || config_file().ok_or("cannot find a folder for the config file");
+    let saved = config_file()
+        .and_then(|file| config::load(&file).ok())
+        .and_then(|config| config.language);
+    lang::set(lang::resolve(saved));
+    let file = || config_file().ok_or_else(|| Text::NoConfigFolder.to_string());
     match args.command {
         Some(Command::Setup) => return setup(&file()?).map(|_| ()),
         Some(Command::List) => return list(&file()?),
@@ -59,14 +63,14 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         }],
         None => {
             let file = file()?;
-            let mut tracked = tracked::load(&file)?;
+            let mut tracked = config::load(&file)?;
             if tracked.folders.is_empty() {
                 if !at_terminal() {
-                    return Err(NOTHING_TRACKED.into());
+                    return Err(Text::NothingTracked.to_string().into());
                 }
                 tracked = setup(&file)?;
                 if tracked.folders.is_empty() {
-                    return Err(NOTHING_TRACKED.into());
+                    return Err(Text::NothingTracked.to_string().into());
                 }
             }
             scan_folders(&tracked.folders)?
@@ -111,7 +115,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         }
     }
     if none_read {
-        return Err("none of the tracked folders could be read".into());
+        return Err(Text::NoneRead.to_string().into());
     }
     if interactive {
         offer_fast_forward(&refreshed, &predictions)?;

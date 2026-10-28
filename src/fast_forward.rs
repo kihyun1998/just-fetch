@@ -49,9 +49,17 @@ pub fn offerable(refreshed: &Refreshed) -> Result<u32, Blocked> {
 pub enum Outcome {
     Updated,
     /// The clone is no longer as planned, so nothing was done; what changed.
-    Changed(String),
+    Changed(Change),
     /// git refused, and the clone is as it was; git's message, trimmed.
     Failed(String),
+}
+
+/// How a clone moved away from its plan while a person was choosing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    /// Tracked files were edited.
+    Dirty,
+    HeadMoved,
 }
 
 /// The commits a fast-forward is planned between, read before a person is asked.
@@ -76,10 +84,10 @@ pub fn fast_forward(clone: &Path, planned: &Planned) -> Result<Outcome, GitMissi
 
 fn try_fast_forward(clone: &Path, planned: &Planned) -> Result<Outcome, GitError> {
     if status::read(clone)?.dirty {
-        return Ok(Outcome::Changed("now dirty".to_string()));
+        return Ok(Outcome::Changed(Change::Dirty));
     }
     if git::run(clone, &["rev-parse", "HEAD"])?.trim() != planned.head {
-        return Ok(Outcome::Changed("HEAD moved".to_string()));
+        return Ok(Outcome::Changed(Change::HeadMoved));
     }
     git::run_with_clone_hooks(clone, &["merge", "--ff-only", "--quiet", &planned.upstream])?;
     Ok(Outcome::Updated)

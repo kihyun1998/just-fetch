@@ -3,7 +3,8 @@ mod common;
 use std::path::Path;
 use std::process::{Command, Output};
 
-use just_fetch::tracked::{CONFIG_DIR_VAR, Tracked, load, save};
+use just_fetch::config::{CONFIG_DIR_VAR, Config, load, save};
+use just_fetch::lang::{Lang, SYSTEM_LANGUAGE_VAR};
 
 use common::{
     clone_with_upstream, commit, commit_file, empty_clone, git, push_file_from_elsewhere,
@@ -17,18 +18,21 @@ fn just_fetch() -> Command {
         CONFIG_DIR_VAR,
         std::env::temp_dir().join("just-fetch-tests-no-config"),
     );
+    command.env(SYSTEM_LANGUAGE_VAR, "en");
     command
 }
 
 /// just-fetch whose config tracks `folders`, in a config folder under `config_dir`.
 fn just_fetch_tracking(config_dir: &Path, folders: &[&Path]) -> Command {
     let file = config_dir.join("config.toml");
-    let tracked = Tracked {
+    let tracked = Config {
+        language: None,
         folders: folders.iter().map(|f| f.to_path_buf()).collect(),
     };
     save(&file, &tracked).unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_just-fetch"));
     command.env(CONFIG_DIR_VAR, config_dir);
+    command.env(SYSTEM_LANGUAGE_VAR, "en");
     command
 }
 
@@ -532,4 +536,74 @@ fn remove_with_nothing_tracked_says_so() {
 
     assert!(out.status.success(), "{out:?}");
     assert!(stdout(&out).contains("nothing is tracked"), "{out:?}");
+}
+
+#[test]
+fn the_os_language_picks_korean_or_english() {
+    for (tag, expected) in [
+        ("ko-KR", "추적하는 폴더가 아직 없음"),
+        ("en-US", "no folders are tracked yet"),
+        ("ja-JP", "no folders are tracked yet"),
+    ] {
+        let out = just_fetch()
+            .env(SYSTEM_LANGUAGE_VAR, tag)
+            .arg("list")
+            .output()
+            .unwrap();
+        assert!(stdout(&out).contains(expected), "{tag}: {out:?}");
+    }
+}
+
+#[test]
+fn a_saved_language_wins_over_the_os_language() {
+    for (saved, os, expected) in [
+        (Lang::Ko, "en-US", "추적하는 폴더가 아직 없음"),
+        (Lang::En, "ko-KR", "no folders are tracked yet"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = Config {
+            language: Some(saved),
+            folders: Vec::new(),
+        };
+        save(&tmp.path().join("config.toml"), &config).unwrap();
+
+        let out = just_fetch()
+            .env(CONFIG_DIR_VAR, tmp.path())
+            .env(SYSTEM_LANGUAGE_VAR, os)
+            .arg("list")
+            .output()
+            .unwrap();
+        assert!(
+            stdout(&out).contains(expected),
+            "{saved:?} over {os}: {out:?}"
+        );
+    }
+}
+
+#[test]
+fn a_piped_table_and_errors_follow_the_language_too() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    clone_with_upstream(root, "alpha");
+    push_from_elsewhere(root, "alpha", "main");
+
+    let out = just_fetch()
+        .env(SYSTEM_LANGUAGE_VAR, "ko-KR")
+        .arg(root)
+        .output()
+        .unwrap();
+    assert!(
+        row(&stdout(&out), "alpha").contains("1개 뒤처짐"),
+        "{out:?}"
+    );
+
+    let out = just_fetch()
+        .env(SYSTEM_LANGUAGE_VAR, "ko-KR")
+        .arg(root.join("missing"))
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("읽을 수 없음"),
+        "{out:?}"
+    );
 }

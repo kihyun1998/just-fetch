@@ -372,7 +372,7 @@ exit 1
     let refreshed = refresh(root);
 
     match status_of(&refreshed, "repo").1 {
-        Fetch::Failed(message) => assert!(message.contains("core.gitProxy"), "{message}"),
+        Fetch::Refused(key) => assert_eq!(key, "core.gitProxy"),
         other => panic!("expected a refused fetch, got {other:?}"),
     }
     assert!(!marker.exists(), "fetch ran the clone's proxy");
@@ -420,7 +420,7 @@ fn a_clone_that_sets_its_own_remote_helper_is_not_fetched() {
     let refreshed = refresh(root);
 
     match status_of(&refreshed, "repo").1 {
-        Fetch::Failed(message) => assert!(message.contains("remote.origin.vcs"), "{message}"),
+        Fetch::Refused(key) => assert_eq!(key, "remote.origin.vcs"),
         other => panic!("expected a refused fetch, got {other:?}"),
     }
 }
@@ -435,9 +435,7 @@ fn a_clone_that_sets_its_own_alternate_refs_command_is_not_fetched() {
     let refreshed = refresh(root);
 
     match status_of(&refreshed, "repo").1 {
-        Fetch::Failed(message) => {
-            assert!(message.contains("core.alternateRefsCommand"), "{message}")
-        }
+        Fetch::Refused(key) => assert_eq!(key, "core.alternateRefsCommand"),
         other => panic!("expected a refused fetch, got {other:?}"),
     }
 }

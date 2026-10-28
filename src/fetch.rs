@@ -13,6 +13,8 @@ pub enum Fetch {
     /// Not fetched: no upstream, or git could not read the clone.
     Skipped,
     Fetched,
+    /// Not fetched, because the clone's own config sets this key, which would run a command.
+    Refused(String),
     /// git's message, trimmed.
     Failed(String),
 }
@@ -41,7 +43,7 @@ impl Refreshed {
             .as_ref()
             .map_err(|_| NotFresh::Unreadable)?;
         match self.fetch {
-            Fetch::Failed(_) => Err(NotFresh::FetchFailed),
+            Fetch::Failed(_) | Fetch::Refused(_) => Err(NotFresh::FetchFailed),
             Fetch::Skipped | Fetch::Fetched => Ok(state.clone_status()),
         }
     }
@@ -51,7 +53,7 @@ impl Refreshed {
 /// `ext::` transport, with git's own upload-pack for a local remote. A clone whose own
 /// config sets `core.gitProxy`, its upstream remote's `vcs` or `core.alternateRefsCommand`
 /// is not fetched.
-fn fetch_upstream(clone: &Path, branch: &str) -> Result<String, GitError> {
+fn fetch_upstream(clone: &Path, branch: &str) -> Result<Fetch, GitError> {
     let remote = git::run(
         clone,
         &["config", "--get", &format!("branch.{branch}.remote")],
@@ -70,9 +72,7 @@ fn fetch_upstream(clone: &Path, branch: &str) -> Result<String, GitError> {
         "core.alternateRefsCommand".to_string(),
     ] {
         if set_by_the_clone(clone, &key)? {
-            return Err(GitError::Failed(format!(
-                "not fetched: this clone's own config sets {key}, which would run a command"
-            )));
+            return Ok(Fetch::Refused(key));
         }
     }
     let mut args = vec![
@@ -87,7 +87,8 @@ fn fetch_upstream(clone: &Path, branch: &str) -> Result<String, GitError> {
         args.push("--upload-pack=git-upload-pack");
     }
     args.push(&remote);
-    git::run(clone, &args)
+    git::run(clone, &args)?;
+    Ok(Fetch::Fetched)
 }
 
 /// Whether `key` is set in the clone's own config, at local or worktree scope, including
@@ -147,10 +148,8 @@ fn refresh(mut found: FoundClone) -> Result<Refreshed, GitMissing> {
             fetch: Fetch::Skipped,
         });
     };
-    let fetch = match git::split_missing(fetch_upstream(&found.path, &branch))? {
-        Ok(_) => Fetch::Fetched,
-        Err(message) => Fetch::Failed(message),
-    };
+    let fetch =
+        git::split_missing(fetch_upstream(&found.path, &branch))?.unwrap_or_else(Fetch::Failed);
     found.state = git::split_missing(status::read(&found.path))?;
     Ok(Refreshed { found, fetch })
 }

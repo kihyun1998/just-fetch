@@ -7,4 +7,5 @@ The territory map. A comment's why, trap and measured value go to a note here. N
 - [predicting-conflicts](predicting-conflicts.md): the trial merge in a scratch repository, and the git it needs.
 - [tracking-folders](tracking-folders.md): the tracked list, where it lives, a run over several folders, and `list` and `remove`.
 - [fast-forwarding](fast-forwarding.md): who is offered, the pick screen, and moving a picked clone to the planned commit.
+- [choosing-the-language](choosing-the-language.md): English or Korean, which wins, and where every sentence lives.
 - [releasing](releasing.md): how a `v*` tag becomes a release, and what the tap and the bucket depend on.

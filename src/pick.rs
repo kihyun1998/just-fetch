@@ -1,10 +1,11 @@
 use console::{Key, style};
 
 use crate::fetch::{Fetch, Refreshed};
-use crate::manage::count;
+use crate::lang::Lang;
 use crate::predict::Prediction;
-use crate::report::{conflict_list, one_line};
+use crate::report::one_line;
 use crate::status::CloneStatus;
+use crate::text::{Outlook, Text};
 
 /// Where a clone sits on the pick screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +20,7 @@ pub enum Group {
 pub struct Row {
     pub label: String,
     pub group: Group,
-    pub sentence: String,
+    pub sentence: Text,
 }
 
 /// The group and sentence for `refreshed`. `unplanned` is why its fast-forward could not be
@@ -28,96 +29,45 @@ pub fn describe(
     refreshed: &Refreshed,
     prediction: Option<&Prediction>,
     unplanned: Option<&str>,
-) -> (Group, String) {
+) -> (Group, Text) {
     use Group::*;
     let state = match &refreshed.found.state {
         Ok(state) => state,
-        Err(message) => {
-            return (
-                NeedsYou,
-                format!("git couldn't read it: {}", one_line(message)),
-            );
-        }
+        Err(message) => return (NeedsYou, Text::SayUnreadable(one_line(message))),
     };
-    if let Fetch::Failed(message) = &refreshed.fetch {
-        return (
-            NeedsYou,
-            format!("Couldn't reach the remote: {}", one_line(message)),
-        );
+    match &refreshed.fetch {
+        Fetch::Failed(message) => return (NeedsYou, Text::SayFetchFailed(one_line(message))),
+        Fetch::Refused(key) => return (NeedsYou, Text::SayFetchRefused(key.clone())),
+        Fetch::Skipped | Fetch::Fetched => {}
     }
     match state.clone_status() {
-        CloneStatus::Behind(n) if state.dirty => (
-            NeedsYou,
-            format!(
-                "{} upstream, but you have unsaved edits. Commit or stash first",
-                count(n as usize, "new commit")
-            ),
-        ),
+        CloneStatus::Behind(n) if state.dirty => (NeedsYou, Text::SayDirty(n)),
         CloneStatus::Behind(n) => match unplanned {
-            Some(why) => (
-                NeedsYou,
-                format!(
-                    "{} upstream, but they couldn't be read: {}",
-                    count(n as usize, "new commit"),
-                    one_line(why)
-                ),
-            ),
-            None => (
-                CanBringIn,
-                format!(
-                    "{} upstream. Ready to bring in",
-                    count(n as usize, "new commit")
-                ),
-            ),
+            Some(why) => (NeedsYou, Text::SayUnplanned(n, one_line(why))),
+            None => (CanBringIn, Text::SayCanBringIn(n)),
         },
-        CloneStatus::UpToDate => (UpToDate, "Same as the remote. Nothing to do".to_string()),
-        CloneStatus::Ahead(n) => (
-            NeedsYou,
-            format!(
-                "{} of yours {} on the remote yet. Push first",
-                count(n as usize, "commit"),
-                if n == 1 { "isn't" } else { "aren't" }
-            ),
-        ),
+        CloneStatus::UpToDate => (UpToDate, Text::SaySame),
+        CloneStatus::Ahead(n) => (NeedsYou, Text::SayAhead(n)),
         CloneStatus::Diverged { ahead, behind } => {
-            let split = format!(
-                "You have {} and upstream has {}.",
-                count(ahead as usize, "new commit"),
-                count(behind as usize, "new commit")
-            );
             let outlook = match prediction {
-                Some(Prediction::Clean) => "Merging would go cleanly. Merge by hand".to_string(),
-                Some(Prediction::Conflicts(files)) => {
-                    format!("Merging would conflict in {}", conflict_list(files))
-                }
-                Some(Prediction::Unavailable(why)) => {
-                    format!("Conflicts couldn't be predicted: {}", one_line(why))
-                }
-                None => "Merge by hand".to_string(),
+                Some(Prediction::Clean) => Outlook::Clean,
+                Some(Prediction::Conflicts(files)) => Outlook::Conflicts(files.clone()),
+                Some(Prediction::Unavailable(why)) => Outlook::Unavailable(one_line(why)),
+                Some(Prediction::NeedsNewerGit) => Outlook::NeedsNewerGit,
+                None => Outlook::Unknown,
             };
-            (NeedsYou, format!("{split} {outlook}"))
+            (NeedsYou, Text::SayDiverged(ahead, behind, outlook))
         }
-        CloneStatus::NoUpstream => (
-            NeedsYou,
-            "No remote branch is linked, so there's nothing to compare against".to_string(),
-        ),
-        CloneStatus::GoneUpstream => (
-            NeedsYou,
-            "The remote branch it followed is gone".to_string(),
-        ),
-        CloneStatus::NoCommits => (
-            NeedsYou,
-            "No commits yet, so there's nothing to compare".to_string(),
-        ),
+        CloneStatus::NoUpstream => (NeedsYou, Text::SayNoUpstream),
+        CloneStatus::GoneUpstream => (NeedsYou, Text::SayUpstreamGone),
+        CloneStatus::NoCommits => (NeedsYou, Text::SayNoCommits),
     }
 }
 
-const TITLE: &str = "Pick the clones you want to bring up to date with their remote. Your unsaved edits are never touched.";
-
-const GROUPS: [(Group, &str); 3] = [
-    (Group::CanBringIn, "Can bring in"),
-    (Group::NeedsYou, "Needs you first (can't be picked here)"),
-    (Group::UpToDate, "Already up to date"),
+const GROUPS: [(Group, Text); 3] = [
+    (Group::CanBringIn, Text::GroupCanBringIn),
+    (Group::NeedsYou, Text::GroupNeedsYou),
+    (Group::UpToDate, Text::GroupUpToDate),
 ];
 
 /// What a key on the pick screen leads to.
@@ -130,7 +80,7 @@ pub enum Step {
 }
 
 /// The pick screen's state: the rows, the cursor over the rows that can be brought in, what
-/// is picked, how far the list is scrolled, and whether the confirmation is up.
+/// is picked, how far the list is scrolled, whether the confirmation is up, and the language.
 #[derive(Debug)]
 pub struct Screen {
     rows: Vec<Row>,
@@ -140,10 +90,11 @@ pub struct Screen {
     scroll: usize,
     follow: bool,
     confirming: bool,
+    lang: Lang,
 }
 
 impl Screen {
-    pub fn new(rows: Vec<Row>) -> Self {
+    pub fn new(rows: Vec<Row>, lang: Lang) -> Self {
         let pickable = (0..rows.len())
             .filter(|&i| rows[i].group == Group::CanBringIn)
             .collect();
@@ -156,7 +107,13 @@ impl Screen {
             scroll: 0,
             follow: true,
             confirming: false,
+            lang,
         }
+    }
+
+    /// The language the screen is in, which `l` switches.
+    pub fn lang(&self) -> Lang {
+        self.lang
     }
 
     /// Whether any row can be picked at all.
@@ -211,6 +168,7 @@ impl Screen {
                 self.follow = false;
             }
             Key::Enter if self.picked.contains(&true) => self.confirming = true,
+            Key::Char('l') => self.lang = self.lang.other(),
             Key::Char('q') | Key::Escape | Key::CtrlC => return Step::Quit,
             _ => {}
         }
@@ -230,14 +188,15 @@ impl Screen {
             .max()
             .unwrap_or(0);
         let cursor_row = self.pickable.get(self.at).copied();
-        let mut lines = vec![style(TITLE).bold().to_string(), String::new()];
+        let say = |text: &Text| text.in_lang(self.lang);
+        let mut lines = vec![style(say(&Text::Title)).bold().to_string(), String::new()];
         let mut cursor_line = None;
         for (group, title) in GROUPS {
             let members: Vec<usize> = (0..self.rows.len())
                 .filter(|&i| self.rows[i].group == group)
                 .collect();
             lines.push(
-                style(format!("{title} ({})", members.len()))
+                style(format!("{} ({})", say(&title), members.len()))
                     .underlined()
                     .to_string(),
             );
@@ -246,7 +205,7 @@ impl Screen {
                 let label = console::pad_str(&row.label, width, console::Alignment::Left, None);
                 if group == Group::CanBringIn {
                     let mark = if self.picked[i] { "[x]" } else { "[ ]" };
-                    let line = format!("{mark} {label}  {}", row.sentence);
+                    let line = format!("{mark} {label}  {}", say(&row.sentence));
                     if cursor_row == Some(i) {
                         cursor_line = Some(lines.len());
                         lines.push(format!("> {line}"));
@@ -255,7 +214,7 @@ impl Screen {
                     }
                 } else {
                     lines.push(
-                        style(format!("      {label}  {}", row.sentence))
+                        style(format!("      {label}  {}", say(&row.sentence)))
                             .dim()
                             .to_string(),
                     );
@@ -298,43 +257,33 @@ impl Screen {
         let above = self.scroll;
         let below = body.len().saturating_sub(self.scroll + view);
         let mut lines: Vec<String> = body.into_iter().skip(self.scroll).take(view).collect();
+        let say = |text: Text| text.in_lang(self.lang);
         let mut marks = Vec::new();
         if above > 0 {
-            marks.push(format!("↑ {} above (b)", count(above, "more line")));
+            marks.push(say(Text::MoreAbove(above)));
         }
         if below > 0 {
-            marks.push(format!("↓ {} below (f)", count(below, "more line")));
+            marks.push(say(Text::MoreBelow(below)));
         }
         lines.push(style(marks.join("   ")).dim().to_string());
-        let a_key = if self.all_picked() {
-            "a unpick all"
-        } else {
-            "a pick all"
+        let keys = Text::Keys {
+            all_picked: self.all_picked(),
         };
-        lines.push(
-            style(format!(
-                "↑↓ move   space pick   {a_key}   enter next   q quit"
-            ))
-            .dim()
-            .to_string(),
-        );
-        lines.push(format!(
-            "{} picked",
-            self.picked.iter().filter(|&&p| p).count()
-        ));
+        lines.push(style(say(keys)).dim().to_string());
+        lines.push(say(Text::Picked(
+            self.picked.iter().filter(|&&p| p).count(),
+        )));
         lines
     }
 
     fn confirmation(&self, height: usize) -> Vec<String> {
         let chosen = self.chosen();
         let room = height.saturating_sub(4).max(1);
+        let say = |text: &Text| text.in_lang(self.lang);
         let mut lines = vec![
-            style(format!(
-                "Bring these {} up to date:",
-                count(chosen.len(), "clone")
-            ))
-            .bold()
-            .to_string(),
+            style(say(&Text::BringThese(chosen.len())))
+                .bold()
+                .to_string(),
         ];
         let shown = if chosen.len() > room {
             room - 1
@@ -344,14 +293,15 @@ impl Screen {
         for &i in &chosen[..shown] {
             lines.push(format!(
                 "  {}  {}",
-                self.rows[i].label, self.rows[i].sentence
+                self.rows[i].label,
+                say(&self.rows[i].sentence)
             ));
         }
         if shown < chosen.len() {
-            lines.push(format!("  … and {} more", chosen.len() - shown));
+            lines.push(say(&Text::AndMore(chosen.len() - shown)));
         }
         lines.push(String::new());
-        lines.push(style("enter go   any other key back").dim().to_string());
+        lines.push(style(say(&Text::GoOrBack)).dim().to_string());
         lines
     }
 
@@ -375,18 +325,21 @@ mod tests {
         Row {
             label: label.to_string(),
             group,
-            sentence: format!("{label} sentence"),
+            sentence: Text::SayUnreadable(label.to_string()),
         }
     }
 
     /// Two that can be brought in, with one that cannot between them.
     fn screen() -> Screen {
-        Screen::new(vec![
-            row("alpha", Group::CanBringIn),
-            row("beta", Group::NeedsYou),
-            row("gamma", Group::CanBringIn),
-            row("delta", Group::UpToDate),
-        ])
+        Screen::new(
+            vec![
+                row("alpha", Group::CanBringIn),
+                row("beta", Group::NeedsYou),
+                row("gamma", Group::CanBringIn),
+                row("delta", Group::UpToDate),
+            ],
+            Lang::En,
+        )
     }
 
     fn text(screen: &mut Screen, height: usize) -> Vec<String> {
@@ -473,10 +426,21 @@ mod tests {
         screen.key(Key::Enter, 10);
         let shown = text(&mut screen, 40);
         assert_eq!(shown[0], "Bring these 2 clones up to date:");
-        assert_eq!(shown[1], "  alpha  alpha sentence");
-        assert_eq!(shown[2], "  gamma  gamma sentence");
+        assert_eq!(shown[1], "  alpha  git couldn't read it: alpha");
+        assert_eq!(shown[2], "  gamma  git couldn't read it: gamma");
 
         assert_eq!(screen.key(Key::Char('x'), 10), Step::Stay);
+        assert!(text(&mut screen, 40)[0].starts_with("Pick the clones"));
+    }
+
+    #[test]
+    fn l_switches_the_language_and_back() {
+        let mut screen = screen();
+        screen.key(Key::Char('l'), 10);
+        assert_eq!(screen.lang(), Lang::Ko);
+        assert!(text(&mut screen, 40)[0].starts_with("원격에 새 커밋이 있는"));
+        screen.key(Key::Char('l'), 10);
+        assert_eq!(screen.lang(), Lang::En);
         assert!(text(&mut screen, 40)[0].starts_with("Pick the clones"));
     }
 
@@ -496,7 +460,7 @@ mod tests {
         let mut rows = vec![row("first", Group::CanBringIn)];
         rows.extend((0..n).map(|i| row(&format!("other{i}"), Group::UpToDate)));
         rows.push(row("last", Group::CanBringIn));
-        Screen::new(rows)
+        Screen::new(rows, Lang::En)
     }
 
     #[test]
@@ -531,6 +495,7 @@ mod tests {
             (0..40)
                 .map(|i| row(&format!("clone{i}"), Group::CanBringIn))
                 .collect(),
+            Lang::En,
         );
         for _ in 0..39 {
             screen.key(Key::ArrowDown, 17);
@@ -605,26 +570,17 @@ mod tests {
         let behind = refreshed(&tracking("+0 -1", false), Fetch::Fetched);
         assert_eq!(
             describe(&behind, None, None),
-            (
-                Group::CanBringIn,
-                "1 new commit upstream. Ready to bring in".to_string()
-            )
+            (Group::CanBringIn, Text::SayCanBringIn(1))
         );
-        assert_eq!(describe(&behind, None, Some("bad\nref")).0, Group::NeedsYou);
-        assert!(
-            describe(&behind, None, Some("bad\nref"))
-                .1
-                .ends_with("bad; ref")
+        assert_eq!(
+            describe(&behind, None, Some("bad\nref")),
+            (Group::NeedsYou, Text::SayUnplanned(1, "bad; ref".into()))
         );
 
         let dirty = refreshed(&tracking("+0 -2", true), Fetch::Fetched);
         assert_eq!(
             describe(&dirty, None, None),
-            (
-                Group::NeedsYou,
-                "2 new commits upstream, but you have unsaved edits. Commit or stash first"
-                    .to_string()
-            )
+            (Group::NeedsYou, Text::SayDirty(2))
         );
     }
 
@@ -636,35 +592,48 @@ mod tests {
             describe(&diverged, Some(&conflicts), None),
             (
                 Group::NeedsYou,
-                "You have 1 new commit and upstream has 2 new commits. \
-                 Merging would conflict in todo.md"
-                    .to_string()
+                Text::SayDiverged(1, 2, Outlook::Conflicts(vec!["todo.md".into()]))
             )
         );
-        assert!(
-            describe(&diverged, Some(&Prediction::Clean), None)
-                .1
-                .ends_with("Merging would go cleanly. Merge by hand")
+        assert_eq!(
+            describe(&diverged, Some(&Prediction::NeedsNewerGit), None).1,
+            Text::SayDiverged(1, 2, Outlook::NeedsNewerGit)
+        );
+        assert_eq!(
+            describe(&diverged, None, None).1,
+            Text::SayDiverged(1, 2, Outlook::Unknown)
         );
     }
 
     #[test]
     fn the_rest_need_you_or_are_up_to_date() {
         let up_to_date = refreshed(&tracking("+0 -0", false), Fetch::Fetched);
-        assert_eq!(describe(&up_to_date, None, None).0, Group::UpToDate);
+        assert_eq!(
+            describe(&up_to_date, None, None),
+            (Group::UpToDate, Text::SaySame)
+        );
 
         let ahead = refreshed(&tracking("+1 -0", false), Fetch::Fetched);
         assert_eq!(
-            describe(&ahead, None, None).1,
-            "1 commit of yours isn't on the remote yet. Push first"
+            describe(&ahead, None, None),
+            (Group::NeedsYou, Text::SayAhead(1))
         );
 
         let failed = refreshed(&tracking("+0 -1", false), Fetch::Failed("no\nroute".into()));
         assert_eq!(
             describe(&failed, None, None),
+            (Group::NeedsYou, Text::SayFetchFailed("no; route".into()))
+        );
+
+        let refused = refreshed(
+            &tracking("+0 -1", false),
+            Fetch::Refused("core.gitProxy".into()),
+        );
+        assert_eq!(
+            describe(&refused, None, None),
             (
                 Group::NeedsYou,
-                "Couldn't reach the remote: no; route".to_string()
+                Text::SayFetchRefused("core.gitProxy".into())
             )
         );
 
