@@ -14,6 +14,9 @@ categories = ["command-line-utilities", "development-tools"]
 clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 dialoguer = "0.11"
+dirs = "7"
+toml = "0.9"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 portable-pty = "0.9"

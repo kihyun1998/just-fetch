@@ -77,3 +77,46 @@ fn display_name(path: &Path) -> String {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
 }
+
+/// A tracked folder and the clones found in it, or why it could not be read.
+#[derive(Debug)]
+pub struct Folder {
+    pub root: PathBuf,
+    pub clones: Result<Vec<FoundClone>, String>,
+}
+
+/// Scans each of `roots`, listing a folder or a clone reached through more than one of them
+/// only under the first. A folder that cannot be read keeps its place with the reason.
+pub fn scan_folders(roots: &[PathBuf]) -> Result<Vec<Folder>, GitMissing> {
+    let same = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut seen_roots: Vec<PathBuf> = Vec::new();
+    let mut seen: Vec<PathBuf> = Vec::new();
+    roots
+        .iter()
+        .filter(|root| {
+            let key = same(root);
+            let fresh = !seen_roots.contains(&key);
+            seen_roots.push(key);
+            fresh
+        })
+        .map(|root| {
+            let clones = match scan(root) {
+                Ok(found) => Ok(found
+                    .into_iter()
+                    .filter(|clone| {
+                        let key = same(&clone.path);
+                        let fresh = !seen.contains(&key);
+                        seen.push(key);
+                        fresh
+                    })
+                    .collect()),
+                Err(ScanError::GitMissing(missing)) => return Err(missing),
+                Err(unreadable) => Err(unreadable.to_string()),
+            };
+            Ok(Folder {
+                root: root.clone(),
+                clones,
+            })
+        })
+        .collect()
+}

@@ -5,4 +5,6 @@ pub mod predict;
 pub mod prompt;
 pub mod report;
 pub mod scan;
+pub mod setup;
 pub mod status;
+pub mod tracked;
