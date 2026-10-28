@@ -26,6 +26,12 @@ As the absolute path the person gave (`std::path::absolute`), not the canonical 
 
 A run with no path and an empty list starts `setup` when stdin, stdout and stderr are all terminals (`prompt::at_terminal`, the same test the pick prompt uses), then covers what was just added; a setup that adds nothing ends the run with the same line as below. Anywhere else it fails with a line naming `just-fetch setup`, so a script never waits on a question.
 
-## The name `setup`
+## Seeing and dropping folders
 
-`setup` is a subcommand, so `just-fetch setup` never means a folder named `setup` in the current folder; `just-fetch ./setup` does.
+`manage::list` prints one line per tracked folder, `<path>  N clones` or `<path>  missing: <reason>`, then the config file's path, and works without a terminal. The count comes from `scan::scan`, so it costs one `git status` per clone and touches no network.
+
+`manage::remove` offers every tracked folder in one pick list, a gone one marked `(missing)` since dropping it is the usual reason to be here. A pick is asked about once more (`[y/n]`, no default) before the file is written; esc at either question, or enter with nothing picked, leaves the file untouched. With nothing tracked it says so and succeeds; otherwise it needs a terminal, like `setup`. Removing by a path given on the command line is not offered. Chosen by the maintainer.
+
+## The names `setup`, `list` and `remove`
+
+They are subcommands, so `just-fetch list` never means a folder named `list` in the current folder; `just-fetch ./list` does.

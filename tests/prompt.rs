@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::{clone_with_upstream, push_file_from_elsewhere};
-use just_fetch::tracked::{CONFIG_DIR_VAR, load};
+use just_fetch::tracked::{CONFIG_DIR_VAR, Tracked, load, save};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -103,13 +103,28 @@ impl Terminal {
     }
 
     /// Waits for the program to exit and its output to settle, and returns all of it.
-    fn finish(mut self) -> String {
+    fn finish(self) -> String {
+        self.finish_with_status().0
+    }
+
+    /// [`finish`](Self::finish), asserting the program exited successfully.
+    fn finish_ok(self) -> String {
+        let (shown, ok) = self.finish_with_status();
+        assert!(ok, "exited with a failure:\n{shown}");
+        shown
+    }
+
+    /// The output, and whether the program exited successfully.
+    fn finish_with_status(mut self) -> (String, bool) {
         let deadline = Instant::now() + TIMEOUT;
-        while self.child.try_wait().unwrap().is_none() {
+        let status = loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                break status;
+            }
             self.answer_queries();
             assert!(Instant::now() < deadline, "did not exit:\n{}", self.text());
             std::thread::sleep(Duration::from_millis(50));
-        }
+        };
         let mut last = self.text();
         let mut quiet_since = Instant::now();
         while quiet_since.elapsed() < SETTLE {
@@ -120,7 +135,7 @@ impl Terminal {
                 quiet_since = Instant::now();
             }
         }
-        last
+        (last, status.success())
     }
 }
 
@@ -325,7 +340,7 @@ fn setup_saves_each_folder_typed_until_an_empty_answer() {
     terminal.press("\r");
     let shown = plain(&terminal.finish());
 
-    assert!(shown.contains("(1clones)"), "{shown}");
+    assert!(shown.contains("(1clone)"), "{shown}");
     assert!(shown.contains("savedto"), "{shown}");
     assert_eq!(tracked_in(&config), [code, notes]);
 }
@@ -395,6 +410,83 @@ fn a_run_whose_setup_adds_nothing_says_nothing_is_tracked() {
     let shown = plain(&terminal.finish());
 
     assert!(shown.contains("just-fetchsetup"), "{shown}");
+}
+
+/// `just-fetch remove` with `folders` tracked under `config_dir`, its list up.
+fn removing(config_dir: &Path, folders: &[&Path]) -> Terminal {
+    let tracked = Tracked {
+        folders: folders.iter().map(|f| f.to_path_buf()).collect(),
+    };
+    save(&config_dir.join("config.toml"), &tracked).unwrap();
+    let mut terminal = with_config(config_dir, &["remove"]);
+    terminal.wait_for("stoptracking");
+    terminal
+}
+
+/// Two folders to track, the second of them gone.
+fn code_and_gone(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let code = root.join("code");
+    std::fs::create_dir(&code).unwrap();
+    (code, root.join("gone"))
+}
+
+#[test]
+fn removing_the_folder_picked_keeps_the_rest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let (code, gone) = code_and_gone(tmp.path());
+
+    let mut terminal = removing(&config, &[&code, &gone]);
+    terminal.press("\x1b[B");
+    terminal.press(" ");
+    terminal.press("\r");
+    terminal.wait_for("Stoptracking1folder?[y/n]");
+    terminal.press("y");
+    terminal.finish_ok();
+
+    assert_eq!(tracked_in(&config), std::slice::from_ref(&code));
+}
+
+#[test]
+fn leaving_remove_without_picking_changes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let (code, gone) = code_and_gone(tmp.path());
+
+    let mut terminal = removing(&config, &[&code, &gone]);
+    terminal.press("\x1b");
+    terminal.finish_ok();
+
+    assert_eq!(tracked_in(&config), [code, gone]);
+}
+
+#[test]
+fn confirming_remove_with_nothing_picked_changes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let (code, gone) = code_and_gone(tmp.path());
+
+    let mut terminal = removing(&config, &[&code, &gone]);
+    terminal.press("\r");
+    terminal.finish_ok();
+
+    assert_eq!(tracked_in(&config), [code, gone]);
+}
+
+#[test]
+fn answering_no_to_remove_changes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let (code, gone) = code_and_gone(tmp.path());
+
+    let mut terminal = removing(&config, &[&code, &gone]);
+    terminal.press(" ");
+    terminal.press("\r");
+    terminal.wait_for("[y/n]");
+    terminal.press("n");
+    terminal.finish_ok();
+
+    assert_eq!(tracked_in(&config), [code, gone]);
 }
 
 /// just-fetch on `root` inside the terminal, with its output piped through another program.

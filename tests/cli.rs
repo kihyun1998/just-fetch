@@ -457,3 +457,79 @@ fn without_a_terminal_nothing_is_pulled() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn list_shows_each_tracked_folder_with_its_clone_count_and_the_config_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (work, one, gone) = (
+        tmp.path().join("work"),
+        tmp.path().join("one"),
+        tmp.path().join("gone"),
+    );
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(&one).unwrap();
+    empty_clone(&work, "alpha");
+    empty_clone(&work, "beta");
+    empty_clone(&one, "gamma");
+    let config = tmp.path().join("config");
+
+    let out = just_fetch_tracking(&config, &[&work, &one, &gone])
+        .arg("list")
+        .output()
+        .unwrap();
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert!(out.status.success());
+    assert_eq!(lines.len(), 4, "{text}");
+    assert!(lines[0].starts_with(&work.display().to_string()), "{text}");
+    assert!(lines[0].ends_with("2 clones"), "{text}");
+    assert!(lines[1].ends_with("1 clone"), "{text}");
+    assert!(lines[2].starts_with(&gone.display().to_string()), "{text}");
+    assert!(lines[2].contains("missing:"), "{text}");
+    assert!(
+        lines[3].contains(&config.join("config.toml").display().to_string()),
+        "{text}"
+    );
+}
+
+#[test]
+fn list_with_nothing_tracked_says_to_run_setup() {
+    let out = just_fetch().arg("list").output().unwrap();
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(text.contains("just-fetch setup"), "{text}");
+    assert!(text.contains("config.toml"), "{text}");
+}
+
+#[test]
+fn remove_without_a_terminal_changes_nothing_and_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let config = tmp.path().join("config");
+
+    let out = just_fetch_tracking(&config, &[&work])
+        .arg("remove")
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("needs a terminal"),
+        "{out:?}"
+    );
+    assert_eq!(
+        load(&config.join("config.toml")).unwrap().folders,
+        std::slice::from_ref(&work)
+    );
+}
+
+#[test]
+fn remove_with_nothing_tracked_says_so() {
+    let out = just_fetch().arg("remove").output().unwrap();
+
+    assert!(out.status.success(), "{out:?}");
+    assert!(stdout(&out).contains("nothing is tracked"), "{out:?}");
+}
