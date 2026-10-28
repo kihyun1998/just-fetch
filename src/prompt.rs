@@ -6,13 +6,17 @@ use crate::fetch::Refreshed;
 use crate::git;
 use crate::report::one_line;
 
+/// Whether stdin, stdout and stderr are all terminals.
+pub fn at_terminal() -> bool {
+    std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+        && std::io::stderr().is_terminal()
+}
+
 /// Asks which offerable clones to fast-forward, then does it. Asks only when stdin, stdout
 /// and stderr are all terminals, so piped or scripted runs change nothing.
 pub fn offer_fast_forward(refreshed: &[Refreshed]) -> Result<(), Box<dyn Error>> {
-    let at_terminal = std::io::stdin().is_terminal()
-        && std::io::stdout().is_terminal()
-        && std::io::stderr().is_terminal();
-    if !at_terminal {
+    if !at_terminal() {
         return Ok(());
     }
     let mut candidates: Vec<(&Refreshed, Planned)> = Vec::new();

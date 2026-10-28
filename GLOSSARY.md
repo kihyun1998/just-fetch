@@ -9,8 +9,12 @@ A local git repository found under the scan root.
 _Avoid_: Repo (ambiguous with the GitHub-side repository), project
 
 **Scan root**:
-The folder I point just-fetch at: either a clone itself, or a folder holding clones.
+A folder just-fetch scans: a tracked folder, or the path given for one run. Either a clone itself, or a folder holding clones.
 _Avoid_: Workspace, base dir
+
+**Tracked folder**:
+A scan root saved by `setup`, covered by every run given no path. It is scanned afresh each run, so a clone made inside it later shows up by itself.
+_Avoid_: Watched folder, registered folder, workspace
 
 **Fast-forward**:
 Moving a clone's branch, picked by a person, up to the upstream commit seen when the list was made. Only a behind clone with nothing uncommitted can be fast-forwarded.

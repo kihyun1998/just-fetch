@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::{clone_with_upstream, push_file_from_elsewhere};
+use just_fetch::tracked::{CONFIG_DIR_VAR, load};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -79,8 +80,13 @@ impl Terminal {
 
     /// Waits until the screen, read as [`plain`], contains `needle`.
     fn wait_for(&mut self, needle: &str) {
+        self.wait_for_nth(needle, 1);
+    }
+
+    /// Waits until the screen, read as [`plain`], contains `needle` `n` times.
+    fn wait_for_nth(&mut self, needle: &str, n: usize) {
         let deadline = Instant::now() + TIMEOUT;
-        while !plain(&self.text()).contains(needle) {
+        while plain(&self.text()).matches(needle).count() < n {
             self.answer_queries();
             assert!(
                 Instant::now() < deadline,
@@ -285,6 +291,110 @@ fn with_output_piped_away_nothing_is_offered_or_pulled() {
         "prompted with output piped:\n{shown}"
     );
     assert!(!pulled(root, "alpha"));
+}
+
+/// just-fetch with `args`, keeping its config under `config_dir`.
+fn with_config(config_dir: &Path, args: &[&str]) -> Terminal {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_just-fetch"));
+    command.args(args);
+    command.env(CONFIG_DIR_VAR, config_dir);
+    Terminal::spawn(command)
+}
+
+/// The tracked folders saved under `config_dir`.
+fn tracked_in(config_dir: &Path) -> Vec<std::path::PathBuf> {
+    load(&config_dir.join("config.toml")).unwrap().folders
+}
+
+#[test]
+fn setup_saves_each_folder_typed_until_an_empty_answer() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let (code, notes) = (tmp.path().join("code"), tmp.path().join("notes"));
+    for folder in [&code, &notes] {
+        std::fs::create_dir(folder).unwrap();
+    }
+    clone_with_upstream(&code, "alpha");
+
+    let mut terminal = with_config(&config, &["setup"]);
+    for (n, folder) in [&code, &notes].into_iter().enumerate() {
+        terminal.wait_for_nth("Foldertotrack", n + 1);
+        terminal.press(&format!("{}\r", folder.display()));
+        terminal.wait_for(&format!("tracking{}", plain(&folder.display().to_string())));
+    }
+    terminal.press("\r");
+    let shown = plain(&terminal.finish());
+
+    assert!(shown.contains("(1clones)"), "{shown}");
+    assert!(shown.contains("savedto"), "{shown}");
+    assert_eq!(tracked_in(&config), [code, notes]);
+}
+
+#[test]
+fn with_nothing_tracked_a_run_at_a_terminal_starts_setup_and_then_covers_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let code = tmp.path().join("code");
+    std::fs::create_dir(&code).unwrap();
+    two_behind(&code);
+
+    let mut terminal = with_config(&config, &[]);
+    terminal.wait_for("Foldertotrack");
+    terminal.press(&format!("{}\r", code.display()));
+    terminal.wait_for("tracking");
+    terminal.press("\r");
+    terminal.wait_for("betabehind1");
+    terminal.press("\x1b");
+    terminal.finish();
+
+    assert_eq!(tracked_in(&config), std::slice::from_ref(&code));
+    assert!(!pulled(&code, "alpha"));
+}
+
+#[test]
+fn a_folder_added_before_setup_is_interrupted_stays_tracked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let code = tmp.path().join("code");
+    std::fs::create_dir(&code).unwrap();
+
+    let mut terminal = with_config(&config, &["setup"]);
+    terminal.wait_for("Foldertotrack");
+    terminal.press(&format!("{}\r", code.display()));
+    terminal.wait_for_nth("Foldertotrack", 2);
+    terminal.press("\x03");
+    terminal.finish();
+
+    assert_eq!(tracked_in(&config), std::slice::from_ref(&code));
+}
+
+#[test]
+fn a_folder_pasted_in_quotes_is_tracked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let code = tmp.path().join("code");
+    std::fs::create_dir(&code).unwrap();
+
+    let mut terminal = with_config(&config, &["setup"]);
+    terminal.wait_for("Foldertotrack");
+    terminal.press(&format!("\"{}\"\r", code.display()));
+    terminal.wait_for_nth("Foldertotrack", 2);
+    terminal.press("\r");
+    terminal.finish();
+
+    assert_eq!(tracked_in(&config), std::slice::from_ref(&code));
+}
+
+#[test]
+fn a_run_whose_setup_adds_nothing_says_nothing_is_tracked() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    let mut terminal = with_config(&tmp.path().join("config"), &[]);
+    terminal.wait_for("Foldertotrack");
+    terminal.press("\r");
+    let shown = plain(&terminal.finish());
+
+    assert!(shown.contains("just-fetchsetup"), "{shown}");
 }
 
 /// just-fetch on `root` inside the terminal, with its output piped through another program.

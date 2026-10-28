@@ -21,7 +21,7 @@ A folder with a `.git` entry, directory or file. The file form is what a worktre
 
 ## Names
 
-A clone's name is the last component of its canonical path, so running with no path inside a clone names the clone rather than `.`.
+A clone's name is the last component of its canonical path, so running with `.` inside a clone names the clone rather than `.`.
 
 ## Cost
 

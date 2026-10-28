@@ -1,14 +1,35 @@
 mod common;
 
+use std::path::Path;
 use std::process::{Command, Output};
+
+use just_fetch::tracked::{CONFIG_DIR_VAR, Tracked, load, save};
 
 use common::{
     clone_with_upstream, commit, commit_file, empty_clone, git, push_file_from_elsewhere,
     push_from_elsewhere, remote_of,
 };
 
+/// just-fetch with a config folder that does not exist, so nothing is tracked.
 fn just_fetch() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_just-fetch"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_just-fetch"));
+    command.env(
+        CONFIG_DIR_VAR,
+        std::env::temp_dir().join("just-fetch-tests-no-config"),
+    );
+    command
+}
+
+/// just-fetch whose config tracks `folders`, in a config folder under `config_dir`.
+fn just_fetch_tracking(config_dir: &Path, folders: &[&Path]) -> Command {
+    let file = config_dir.join("config.toml");
+    let tracked = Tracked {
+        folders: folders.iter().map(|f| f.to_path_buf()).collect(),
+    };
+    save(&file, &tracked).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_just-fetch"));
+    command.env(CONFIG_DIR_VAR, config_dir);
+    command
 }
 
 fn stdout(out: &Output) -> String {
@@ -22,14 +43,187 @@ fn row<'a>(text: &'a str, name: &str) -> &'a str {
 }
 
 #[test]
-fn with_no_path_the_current_folder_is_the_scan_root() {
+fn with_no_path_every_tracked_folder_is_covered_under_its_own_heading() {
     let tmp = tempfile::tempdir().unwrap();
-    empty_clone(tmp.path(), "here");
+    let work = tmp.path().join("work");
+    let play = tmp.path().join("play");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(&play).unwrap();
+    empty_clone(&work, "alpha");
+    empty_clone(&play, "beta");
+    let config = tmp.path().join("config");
 
-    let out = just_fetch().current_dir(tmp.path()).output().unwrap();
+    let out = just_fetch_tracking(&config, &[&work, &play])
+        .output()
+        .unwrap();
+    let text = stdout(&out);
+
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    row(&text, "alpha");
+    row(&text, "beta");
+    let work_at = text
+        .find(&work.display().to_string())
+        .expect("no heading for work");
+    let play_at = text
+        .find(&play.display().to_string())
+        .expect("no heading for play");
+    assert!(
+        work_at < text.find("alpha").unwrap() && text.find("alpha").unwrap() < play_at,
+        "{text}"
+    );
+}
+
+#[test]
+fn a_single_tracked_folder_has_no_heading() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    empty_clone(&work, "alpha");
+
+    let out = just_fetch_tracking(&tmp.path().join("config"), &[&work])
+        .output()
+        .unwrap();
+    let text = stdout(&out);
+
+    assert_eq!(text.lines().count(), 1, "{text}");
+    row(&text, "alpha");
+}
+
+#[test]
+fn a_clone_made_after_tracking_shows_up() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let config = tmp.path().join("config");
+    just_fetch_tracking(&config, &[&work]).output().unwrap();
+    empty_clone(&work, "newcomer");
+
+    let out = just_fetch_tracking(&config, &[&work]).output().unwrap();
+
+    row(&stdout(&out), "newcomer");
+}
+
+#[test]
+fn a_tracked_folder_that_is_gone_is_reported_and_the_rest_still_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    empty_clone(&work, "alpha");
+    let gone = tmp.path().join("gone");
+
+    let out = just_fetch_tracking(&tmp.path().join("config"), &[&gone, &work])
+        .output()
+        .unwrap();
+    let text = stdout(&out);
 
     assert!(out.status.success());
-    row(&stdout(&out), "here");
+    let heading = text
+        .lines()
+        .position(|l| l.contains(&gone.display().to_string()))
+        .expect("no heading for the gone folder");
+    assert!(
+        text.lines()
+            .nth(heading + 1)
+            .unwrap()
+            .contains("cannot read"),
+        "{text}"
+    );
+    row(&text, "alpha");
+}
+
+#[test]
+fn a_clone_reached_through_two_tracked_folders_is_listed_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let alpha = empty_clone(&work, "alpha");
+
+    let out = just_fetch_tracking(&tmp.path().join("config"), &[&work, &alpha])
+        .output()
+        .unwrap();
+    let text = stdout(&out);
+
+    let rows = text
+        .lines()
+        .filter(|l| l.split_whitespace().next() == Some("alpha"))
+        .count();
+    assert_eq!(rows, 1, "{text}");
+}
+
+#[test]
+fn when_no_tracked_folder_can_be_read_the_run_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (gone, also_gone) = (tmp.path().join("gone"), tmp.path().join("also-gone"));
+
+    let out = just_fetch_tracking(&tmp.path().join("config"), &[&gone, &also_gone])
+        .output()
+        .unwrap();
+    let text = stdout(&out);
+
+    assert!(!out.status.success());
+    assert_eq!(text.matches("cannot read").count(), 2, "{text}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("none of the tracked folders"),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn a_folder_listed_twice_in_the_config_is_covered_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(work.join("sub")).unwrap();
+    empty_clone(&work, "alpha");
+
+    let out = just_fetch_tracking(
+        &tmp.path().join("config"),
+        &[&work, &work.join("sub").join("..")],
+    )
+    .output()
+    .unwrap();
+    let text = stdout(&out);
+
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert!(text.starts_with("alpha"), "{text}");
+}
+
+#[test]
+fn a_path_given_covers_only_that_path_and_leaves_the_tracked_list_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    let other = tmp.path().join("other");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    empty_clone(&work, "alpha");
+    empty_clone(&other, "beta");
+    let config = tmp.path().join("config");
+
+    let out = just_fetch_tracking(&config, &[&work])
+        .arg(&other)
+        .output()
+        .unwrap();
+    let text = stdout(&out);
+
+    row(&text, "beta");
+    assert!(!text.contains("alpha"), "{text}");
+    let tracked = load(&config.join("config.toml")).unwrap();
+    assert_eq!(tracked.folders, std::slice::from_ref(&work));
+}
+
+#[test]
+fn with_nothing_tracked_and_no_terminal_it_says_to_run_setup() {
+    let out = just_fetch().output().unwrap();
+
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("just-fetch setup"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
@@ -79,11 +273,11 @@ fn a_missing_path_is_named_in_the_error() {
 }
 
 #[test]
-fn run_inside_a_clone_with_no_path_names_the_clone_not_dot() {
+fn run_inside_a_clone_with_dot_names_the_clone_not_dot() {
     let tmp = tempfile::tempdir().unwrap();
     let clone = empty_clone(tmp.path(), "inside");
 
-    let out = just_fetch().current_dir(&clone).output().unwrap();
+    let out = just_fetch().arg(".").current_dir(&clone).output().unwrap();
 
     row(&stdout(&out), "inside");
 }

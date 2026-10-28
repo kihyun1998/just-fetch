@@ -1,6 +1,6 @@
 # just-fetch
 
-Fetches every git clone in a folder, shows how each one stands against its upstream, and fast-forwards the ones you pick. For Windows and macOS.
+Fetches every git clone in the folders you track, shows how each one stands against its upstream, and fast-forwards the ones you pick. For Windows and macOS.
 
 ```text
 $ just-fetch ~/code
@@ -42,10 +42,14 @@ just-fetch runs the `git` already installed, so it signs in the way your git doe
 ## Use
 
 ```sh
-just-fetch [PATH]
+just-fetch setup     # add folders to track
+just-fetch           # cover every tracked folder
+just-fetch PATH      # cover PATH this once
 ```
 
-`PATH` is either a clone, or a folder whose subfolders are clones (one level down). With no path, it uses the current folder.
+`setup` asks for folders one at a time; leave the answer empty to finish. Each folder is either a clone, or a folder whose subfolders are clones (one level down). They are scanned again on every run, so a clone you make later shows up by itself. With more than one folder tracked, each folder's clones are listed under its path. The list is kept in `config.toml` under `~/Library/Application Support/just-fetch` on macOS and `%APPDATA%\just-fetch` on Windows.
+
+`PATH` covers one clone or folder for this run and leaves the tracked list alone. With nothing tracked and no path, just-fetch starts `setup` in a terminal, and otherwise says to run it.
 
 For each clone, just-fetch fetches the remote its current branch tracks, then shows:
 
