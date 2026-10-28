@@ -94,6 +94,20 @@ pub fn head_and_upstream(clone: &Path) -> Result<(String, String), GitError> {
     }
 }
 
+/// Whether git would reach `url` through its local transport (a path or `file://`), by
+/// git's own rule in `url_is_local_not_ssh` and `transport_get`.
+pub fn is_local_url(url: &str) -> bool {
+    if url.starts_with("file://") {
+        return true;
+    }
+    let Some(colon) = url.find(':') else {
+        return true;
+    };
+    let slash_first = url.find('/').is_some_and(|slash| slash < colon);
+    let drive = cfg!(windows) && colon == 1 && url.starts_with(|c: char| c.is_ascii_alphabetic());
+    slash_first || drive
+}
+
 fn start(clone: &Path, hooks: &[&str], args: &[&str]) -> Result<Ran, GitError> {
     let out = Command::new("git")
         .args(["-c", "core.fsmonitor=false"])
@@ -122,4 +136,37 @@ fn no_hooks_dir() -> Option<&'static PathBuf> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
     DIR.get_or_init(|| std::env::current_exe().ok().map(|exe| exe.join("no-hooks")))
         .as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_and_file_urls_are_local() {
+        assert!(is_local_url("/srv/git/repo.git"));
+        assert!(is_local_url("../sibling.git"));
+        assert!(is_local_url("repo.git"));
+        assert!(is_local_url("file:///srv/git/repo.git"));
+        assert!(is_local_url("./odd:name.git"));
+    }
+
+    #[test]
+    fn network_and_scp_like_urls_are_not_local() {
+        assert!(!is_local_url(
+            "https://github.com/kihyun1998/just-fetch.git"
+        ));
+        assert!(!is_local_url(
+            "ssh://git@github.com/kihyun1998/just-fetch.git"
+        ));
+        assert!(!is_local_url("git://example.org/repo.git"));
+        assert!(!is_local_url("git@github.com:kihyun1998/just-fetch.git"));
+        assert!(!is_local_url("ext::sh -c x"));
+    }
+
+    #[test]
+    fn a_drive_letter_is_local_only_on_windows() {
+        assert_eq!(is_local_url("C:/Users/me/repo.git"), cfg!(windows));
+        assert_eq!(is_local_url("D:\\repos\\x.git"), cfg!(windows));
+    }
 }
