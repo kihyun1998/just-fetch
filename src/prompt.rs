@@ -3,6 +3,7 @@ use std::io::{self, IsTerminal};
 
 use console::Term;
 
+use crate::ctrl_c::AsKey;
 use crate::fast_forward::{Outcome, fast_forward, offerable, plan};
 use crate::fetch::Refreshed;
 use crate::git;
@@ -100,6 +101,7 @@ fn show(screen: &mut Screen) -> io::Result<Vec<usize>> {
     if !term.features().colors_supported() {
         return Err(io::Error::other(Text::CannotDraw.to_string()));
     }
+    let _as_key = AsKey::hold();
     let _alternate = Alternate::enter(&term)?;
     loop {
         let (height, width) = term.size();
