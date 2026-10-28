@@ -13,3 +13,4 @@ pub mod scan;
 pub mod setup;
 pub mod status;
 pub mod text;
+pub mod upgrade;

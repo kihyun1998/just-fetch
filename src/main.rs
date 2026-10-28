@@ -13,6 +13,7 @@ use just_fetch::report::render;
 use just_fetch::scan::{Folder, scan, scan_folders};
 use just_fetch::setup::setup;
 use just_fetch::text::Text;
+use just_fetch::upgrade::upgrade;
 
 /// Fetches your clones and shows how each stands against its upstream.
 #[derive(Parser)]
@@ -32,11 +33,13 @@ enum Command {
     List,
     /// Pick tracked folders to stop tracking.
     Remove,
+    /// Bring just-fetch itself to its newest release, through what installed it.
+    Upgrade,
 }
 
 fn main() -> ExitCode {
     match run(Args::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(message) => {
             eprintln!("just-fetch: {message}");
             ExitCode::FAILURE
@@ -44,16 +47,17 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: Args) -> Result<(), Box<dyn Error>> {
+fn run(args: Args) -> Result<ExitCode, Box<dyn Error>> {
     let saved = config_file()
         .and_then(|file| config::load(&file).ok())
         .and_then(|config| config.language);
     lang::set(lang::resolve(saved));
     let file = || config_file().ok_or_else(|| Text::NoConfigFolder.to_string());
     match args.command {
-        Some(Command::Setup) => return setup(&file()?).map(|_| ()),
-        Some(Command::List) => return list(&file()?),
-        Some(Command::Remove) => return remove(&file()?),
+        Some(Command::Setup) => return setup(&file()?).map(|_| ExitCode::SUCCESS),
+        Some(Command::List) => return list(&file()?).map(|_| ExitCode::SUCCESS),
+        Some(Command::Remove) => return remove(&file()?).map(|_| ExitCode::SUCCESS),
+        Some(Command::Upgrade) => return upgrade(),
         None => {}
     }
     let folders = match args.path {
@@ -120,5 +124,5 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     if interactive {
         offer_fast_forward(&refreshed, &predictions)?;
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
