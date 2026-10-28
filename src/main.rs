@@ -88,18 +88,24 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let none_read = sections.iter().all(|(_, size)| size.is_err());
     let refreshed = fetch_all(all)?;
     let predictions = predict_diverged(&refreshed)?;
+    let interactive = at_terminal();
     let mut at = 0;
     for (root, size) in sections {
-        if headings {
-            println!("{}", root.display());
-        }
         match size {
-            Ok(size) => {
+            Ok(size) if !interactive => {
+                if headings {
+                    println!("{}", root.display());
+                }
                 print!(
                     "{}",
                     render(&refreshed[at..at + size], &predictions[at..at + size])
                 );
                 at += size;
+            }
+            Ok(_) => {}
+            Err(message) if !interactive && headings => {
+                println!("{}", root.display());
+                println!("{message}");
             }
             Err(message) => println!("{message}"),
         }
@@ -107,5 +113,8 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     if none_read {
         return Err("none of the tracked folders could be read".into());
     }
-    offer_fast_forward(&refreshed)
+    if interactive {
+        offer_fast_forward(&refreshed, &predictions)?;
+    }
+    Ok(())
 }

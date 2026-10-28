@@ -20,7 +20,7 @@ As the absolute path the person gave (`std::path::absolute`), not the canonical 
 - **A folder that cannot be read** (moved, unplugged) prints its heading and the reason, and the other folders still run; the run succeeds unless no folder could be read, so a script notices when every folder is gone (chosen by the maintainer). A path given on the command line that cannot be read still fails the run, as before.
 - **A folder listed twice** (a hand-edited file, another spelling of the same path) is covered once, at its first place.
 - **A clone reached through two tracked folders** (one folder inside another, or a symlink) is listed once, under the first folder that reaches it, compared by canonical path.
-- **The pick prompt** offers clones from every folder in one list.
+- **The pick screen** shows clones from every folder in one set of groups, without folder headings; a clone whose name another clone shares is labelled with its parent folder in front (`work/api`), the rest by name alone. Chosen by the maintainer. At a terminal an unreadable tracked folder's line is printed before the screen opens, so it is still there after the screen closes.
 
 ## With nothing tracked
 
