@@ -424,3 +424,20 @@ fn a_clone_that_sets_its_own_remote_helper_is_not_fetched() {
         other => panic!("expected a refused fetch, got {other:?}"),
     }
 }
+
+#[test]
+fn a_clone_that_sets_its_own_alternate_refs_command_is_not_fetched() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let clone = clone_with_upstream(root, "repo");
+    git(&clone, &["config", "core.alternateRefsCommand", "unused"]);
+
+    let refreshed = refresh(root);
+
+    match status_of(&refreshed, "repo").1 {
+        Fetch::Failed(message) => {
+            assert!(message.contains("core.alternateRefsCommand"), "{message}")
+        }
+        other => panic!("expected a refused fetch, got {other:?}"),
+    }
+}
