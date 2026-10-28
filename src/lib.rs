@@ -1,4 +1,5 @@
 pub mod config;
+pub mod ctrl_c;
 pub mod fast_forward;
 pub mod fetch;
 pub mod git;

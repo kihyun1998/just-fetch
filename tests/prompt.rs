@@ -375,6 +375,45 @@ fn ctrl_c_leaves_and_changes_nothing() {
     assert!(!pulled(root, "alpha"));
 }
 
+/// How many threads this machine runs at once.
+fn cores() -> usize {
+    std::thread::available_parallelism().map_or(4, |n| n.get())
+}
+
+#[test]
+fn ctrl_c_while_the_screen_redraws_still_leaves_cleanly() {
+    for round in 0..10 {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        two_behind(root);
+
+        let mut terminal = open(root);
+        let busy = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let spinners: Vec<_> = (0..cores() * 2)
+            .map(|_| {
+                let busy = Arc::clone(&busy);
+                std::thread::spawn(move || {
+                    while busy.load(std::sync::atomic::Ordering::Relaxed) {
+                        std::hint::spin_loop();
+                    }
+                })
+            })
+            .collect();
+        for _ in 0..30 {
+            terminal.press("j");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        terminal.press("\x03");
+        std::thread::sleep(Duration::from_millis(200));
+        busy.store(false, std::sync::atomic::Ordering::Relaxed);
+        spinners.into_iter().for_each(|s| s.join().unwrap());
+        let (shown, ok) = terminal.finish_with_status();
+
+        assert!(ok, "round {round} did not leave cleanly:\n{shown}");
+        assert!(!pulled(root, "alpha"));
+    }
+}
+
 #[test]
 fn a_clone_edited_while_the_screen_is_open_is_skipped() {
     let tmp = tempfile::tempdir().unwrap();
