@@ -354,15 +354,19 @@ fn variant_d() {
             println!();
         }
         let n = picked.iter().filter(|&&p| p).count();
-        println!(
-            "{}",
-            style(t(
-                korean,
-                "↑↓ 이동   스페이스 고르기   a 전부 고르기   엔터 다음   q 그만   l English",
-                "↑↓ move   space pick   a pick all   enter next   q quit   l 한국어"
-            ))
-            .dim()
-        );
+        let all = pickable.iter().all(|&i| picked[i]);
+        let a_key = match (korean, all) {
+            (true, false) => "a 전부 고르기",
+            (true, true) => "a 전부 풀기",
+            (false, false) => "a pick all",
+            (false, true) => "a unpick all",
+        };
+        let hint = if korean {
+            format!("↑↓ 이동   스페이스 고르기   {a_key}   엔터 다음   q 그만   l English")
+        } else {
+            format!("↑↓ move   space pick   {a_key}   enter next   q quit   l 한국어")
+        };
+        println!("{}", style(hint).dim());
         println!(
             "{}",
             if korean {
@@ -375,7 +379,10 @@ fn variant_d() {
             Key::ArrowUp | Key::Char('k') => at = at.saturating_sub(1),
             Key::ArrowDown | Key::Char('j') => at = (at + 1).min(pickable.len() - 1),
             Key::Char(' ') => picked[pickable[at]] = !picked[pickable[at]],
-            Key::Char('a') => pickable.iter().for_each(|&i| picked[i] = true),
+            Key::Char('a') => {
+                let all = pickable.iter().all(|&i| picked[i]);
+                pickable.iter().for_each(|&i| picked[i] = !all);
+            }
             Key::Char('l') => korean = !korean,
             Key::Enter => {
                 let chosen: Vec<usize> = (0..CLONES.len()).filter(|&i| picked[i]).collect();
