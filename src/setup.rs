@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
+use crate::manage::count;
 use crate::prompt::at_terminal;
 use crate::scan::scan;
 use crate::tracked::{self, Tracked};
@@ -27,7 +28,7 @@ pub fn setup(file: &Path) -> Result<Tracked, Box<dyn Error>> {
                 tracked::save(file, &tracked)?;
                 let stored = tracked.folders.last().expect("just added");
                 let clones = scan(stored).map(|found| found.len()).unwrap_or(0);
-                println!("tracking {} ({clones} clones)", stored.display());
+                println!("tracking {} ({})", stored.display(), count(clones, "clone"));
             }
             Ok(false) => println!("already tracked: {}", folder.display()),
             Err(message) => println!("{message}"),

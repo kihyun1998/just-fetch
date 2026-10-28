@@ -5,6 +5,6 @@ The territory map. A comment's why, trap and measured value go to a note here. N
 - [reading-clone-state](reading-clone-state.md): one `git status` per clone, what counts as a clone, and how a git failure is split from git missing.
 - [fetching-clones](fetching-clones.md): fetching each clone's upstream remote, the guards every git call carries, and doing several at once.
 - [predicting-conflicts](predicting-conflicts.md): the trial merge in a scratch repository, and the git it needs.
-- [tracking-folders](tracking-folders.md): the tracked list, where it lives, and a run over several folders.
+- [tracking-folders](tracking-folders.md): the tracked list, where it lives, a run over several folders, and `list` and `remove`.
 - [fast-forwarding](fast-forwarding.md): who is offered, the prompt, and moving a picked clone to the planned commit.
 - [releasing](releasing.md): how a `v*` tag becomes a release, and what the tap and the bucket depend on.

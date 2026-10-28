@@ -4,6 +4,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use just_fetch::fetch::fetch_all;
+use just_fetch::manage::{list, remove};
 use just_fetch::predict::predict_diverged;
 use just_fetch::prompt::{at_terminal, offer_fast_forward};
 use just_fetch::report::render;
@@ -27,6 +28,10 @@ struct Args {
 enum Command {
     /// Add folders to track, so a run with no path covers them.
     Setup,
+    /// Show the tracked folders and where the list is kept.
+    List,
+    /// Pick tracked folders to stop tracking.
+    Remove,
 }
 
 fn main() -> ExitCode {
@@ -41,9 +46,11 @@ fn main() -> ExitCode {
 
 fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let file = || config_file().ok_or("cannot find a folder for the config file");
-    if let Some(Command::Setup) = args.command {
-        setup(&file()?)?;
-        return Ok(());
+    match args.command {
+        Some(Command::Setup) => return setup(&file()?).map(|_| ()),
+        Some(Command::List) => return list(&file()?),
+        Some(Command::Remove) => return remove(&file()?),
+        None => {}
     }
     let folders = match args.path {
         Some(path) => vec![Folder {
