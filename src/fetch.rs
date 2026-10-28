@@ -49,7 +49,8 @@ impl Refreshed {
 
 /// Fetches only the remote `branch`'s upstream lives on, without submodule recursion or the
 /// `ext::` transport, with git's own upload-pack for a local remote. A clone whose own
-/// config sets `core.gitProxy` or its upstream remote's `vcs` is not fetched.
+/// config sets `core.gitProxy`, its upstream remote's `vcs` or `core.alternateRefsCommand`
+/// is not fetched.
 fn fetch_upstream(clone: &Path, branch: &str) -> Result<String, GitError> {
     let remote = git::run(
         clone,
@@ -63,7 +64,11 @@ fn fetch_upstream(clone: &Path, branch: &str) -> Result<String, GitError> {
             .trim()
             .to_string(),
     };
-    for key in ["core.gitProxy".to_string(), format!("remote.{remote}.vcs")] {
+    for key in [
+        "core.gitProxy".to_string(),
+        format!("remote.{remote}.vcs"),
+        "core.alternateRefsCommand".to_string(),
+    ] {
         if set_by_the_clone(clone, &key)? {
             return Err(GitError::Failed(format!(
                 "not fetched: this clone's own config sets {key}, which would run a command"
