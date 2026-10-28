@@ -2,6 +2,7 @@ pub mod fast_forward;
 pub mod fetch;
 pub mod git;
 pub mod manage;
+pub mod pick;
 pub mod predict;
 pub mod prompt;
 pub mod report;

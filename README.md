@@ -4,13 +4,22 @@ Fetches every git clone in the folders you track, shows how each one stands agai
 
 ```text
 $ just-fetch ~/code
-autonamu          main  -> origin/main  ahead 2
-boring_avatars    main  -> origin/main  behind 2  dirty
-cover-letters     main  -> origin/main  behind 1
-notes             main  -> origin/main  diverged +1 -2  conflict: todo.md
-scratch           main  no upstream  3 untracked
-Pick clones to fast-forward (space picks, enter confirms, esc leaves):
-> [ ] cover-letters  behind 1
+Pick the clones you want to bring up to date with their remote. Your unsaved edits are never touched.
+
+Can bring in (1)
+> [ ] cover-letters   1 new commit upstream. Ready to bring in
+
+Needs you first (can't be picked here) (4)
+      autonamu        2 commits of yours aren't on the remote yet. Push first
+      boring_avatars  2 new commits upstream, but you have unsaved edits. Commit or stash first
+      notes           You have 1 new commit and upstream has 2 new commits. Merging would conflict in todo.md
+      scratch         No remote branch is linked, so there's nothing to compare against
+
+Already up to date (0)
+
+
+↑↓ move   space pick   a pick all   enter next   q quit
+0 picked
 ```
 
 ## Install
@@ -55,7 +64,7 @@ just-fetch PATH      # cover PATH this once
 
 `PATH` covers one clone or folder for this run and leaves the tracked list alone. With nothing tracked and no path, just-fetch starts `setup` in a terminal, and otherwise says to run it.
 
-For each clone, just-fetch fetches the remote its current branch tracks, then shows:
+For each clone, just-fetch fetches the remote its current branch tracks. When the output is piped or scripted, it prints one line per clone:
 
 | Status | Meaning |
 |---|---|
@@ -69,7 +78,7 @@ For each clone, just-fetch fetches the remote its current branch tracks, then sh
 
 `dirty` means uncommitted changes to tracked files. `N untracked` counts new files; they don't count as dirty.
 
-In a terminal, it then offers every clone that is behind and not dirty. Space picks a clone, enter fast-forwards the ones picked, and esc leaves with nothing changed. A clone that changes while the prompt is open (an edit, a new commit) is skipped. When the output is piped or scripted, it only prints the list and changes nothing.
+In a terminal, the same clones show as the screen above instead, in three groups and in plain words: the ones it can bring up to date (behind, nothing uncommitted), the ones that need you first, and the ones already up to date. The cursor moves only over the first group (↑↓ or j/k). Space picks a clone, `a` picks all of them or, once all are picked, none, and enter shows what will be brought in; enter again does it, and any other key goes back. `q` or esc leaves with nothing changed. A list taller than the terminal scrolls with the cursor, and `f` and `b` move it a screen at a time. Clones with the same name in two tracked folders show their folder in front (`work/api`). A clone that changes while the screen is open (an edit, a new commit) is skipped. With nothing to bring in, the groups are printed and nothing is asked. A piped or scripted run only prints the lines above and changes nothing.
 
 ## License
 

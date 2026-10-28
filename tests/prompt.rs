@@ -170,13 +170,13 @@ fn plain(text: &str) -> String {
     out
 }
 
-/// just-fetch on `root`, with its prompt up.
+/// just-fetch on `root`, with its pick screen up.
 fn open(root: &Path) -> Terminal {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_just-fetch"));
     command.arg(root);
     let mut terminal = Terminal::spawn(command);
-    terminal.wait_for("fast-forward");
-    terminal.wait_for("betabehind1");
+    terminal.wait_for("Canbringin(2)");
+    terminal.wait_for("0picked");
     terminal
 }
 
@@ -191,6 +191,13 @@ fn pulled(root: &Path, name: &str) -> bool {
     root.join(name).join("theirs.txt").exists()
 }
 
+/// Enter on the list, then enter again on the confirmation once it is up.
+fn confirm(terminal: &mut Terminal) {
+    terminal.press("\r");
+    terminal.wait_for("uptodate:");
+    terminal.press("\r");
+}
+
 #[test]
 fn picking_one_clone_fast_forwards_only_that_one() {
     let tmp = tempfile::tempdir().unwrap();
@@ -199,66 +206,167 @@ fn picking_one_clone_fast_forwards_only_that_one() {
 
     let mut terminal = open(root);
     terminal.press(" ");
-    terminal.press("\r");
-    let shown = plain(&terminal.finish());
+    confirm(&mut terminal);
+    let shown = plain(&terminal.finish_ok());
 
+    assert!(shown.contains("Bringthese1cloneuptodate:"), "{shown}");
     assert!(shown.contains("alpha:updated"), "{shown}");
     assert!(pulled(root, "alpha"));
     assert!(!pulled(root, "beta"));
 }
 
 #[test]
-fn leaving_without_picking_changes_nothing() {
+fn at_a_terminal_the_screen_stands_in_for_the_table() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     two_behind(root);
 
     let mut terminal = open(root);
-    terminal.press("\x1b");
-    terminal.finish();
+    terminal.press("q");
+    let shown = plain(&terminal.finish_ok());
 
-    assert!(!pulled(root, "alpha"));
-    assert!(!pulled(root, "beta"));
+    assert!(
+        shown.contains("alpha1newcommitupstream.Readytobringin"),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains("->origin/main"),
+        "the table was printed:\n{shown}"
+    );
 }
 
 #[test]
-fn confirming_with_nothing_picked_changes_nothing() {
+fn leaving_with_esc_or_q_changes_nothing() {
+    for key in ["\x1b", "q"] {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        two_behind(root);
+
+        let mut terminal = open(root);
+        terminal.press(" ");
+        terminal.wait_for("1picked");
+        terminal.press(key);
+        terminal.finish_ok();
+
+        assert!(!pulled(root, "alpha"), "after {key:?}");
+    }
+}
+
+#[test]
+fn enter_with_nothing_picked_stays_on_the_list() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     two_behind(root);
 
     let mut terminal = open(root);
     terminal.press("\r");
-    terminal.finish();
+    terminal.press("q");
+    let shown = plain(&terminal.finish_ok());
 
+    assert!(!shown.contains("Bringthese"), "{shown}");
     assert!(!pulled(root, "alpha"));
     assert!(!pulled(root, "beta"));
 }
 
 #[test]
-fn a_clone_that_cannot_be_pulled_is_not_offered() {
+fn the_three_groups_show_and_the_cursor_skips_rows_that_cannot_be_picked() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     two_behind(root);
     let dirty = clone_with_upstream(root, "aaa-dirty");
     push_file_from_elsewhere(root, "aaa-dirty", "theirs.txt", "theirs\n");
     std::fs::write(dirty.join("README.md"), "changed\n").unwrap();
+    clone_with_upstream(root, "zzz-current");
 
     let mut terminal = open(root);
-    let shown = plain(&terminal.text());
-    let offered = shown[shown.find("fast-forward").expect("no prompt")..].to_string();
-    terminal.press("\x1b");
-    terminal.finish();
+    terminal.wait_for("Needsyoufirst(can'tbepickedhere)(1)");
+    terminal.wait_for("Alreadyuptodate(1)");
+    for _ in 0..5 {
+        terminal.press("\x1b[B");
+    }
+    terminal.press(" ");
+    confirm(&mut terminal);
+    let shown = plain(&terminal.finish_ok());
 
-    assert!(offered.contains("alphabehind1"), "{offered}");
     assert!(
-        !offered.contains("aaa-dirty"),
-        "a dirty clone was offered:\n{offered}"
+        shown.contains("aaa-dirty1newcommitupstream,butyouhaveunsavededits"),
+        "{shown}"
     );
+    assert!(shown.contains("beta:updated"), "{shown}");
+    assert!(!pulled(root, "alpha"));
+    assert!(!dirty.join("theirs.txt").exists());
 }
 
 #[test]
-fn a_clone_edited_while_the_prompt_is_open_is_skipped() {
+fn a_picks_every_clone_that_can_be_brought_in() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    two_behind(root);
+
+    let mut terminal = open(root);
+    terminal.press("a");
+    terminal.wait_for("aunpickall");
+    confirm(&mut terminal);
+    terminal.finish_ok();
+
+    assert!(pulled(root, "alpha"));
+    assert!(pulled(root, "beta"));
+}
+
+#[test]
+fn a_twice_picks_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    two_behind(root);
+
+    let mut terminal = open(root);
+    terminal.press("a");
+    terminal.wait_for("2picked");
+    terminal.press("a");
+    terminal.wait_for_nth("0picked", 2);
+    terminal.press("\r");
+    terminal.press("q");
+    terminal.finish_ok();
+
+    assert!(!pulled(root, "alpha"));
+    assert!(!pulled(root, "beta"));
+}
+
+#[test]
+fn another_key_at_the_confirmation_goes_back_and_changes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    two_behind(root);
+
+    let mut terminal = open(root);
+    terminal.press(" ");
+    terminal.press("\r");
+    terminal.wait_for("Bringthese1cloneuptodate:");
+    terminal.press("x");
+    terminal.wait_for_nth("Picktheclones", 2);
+    terminal.press("q");
+    terminal.finish_ok();
+
+    assert!(!pulled(root, "alpha"));
+}
+
+#[test]
+fn ctrl_c_leaves_and_changes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    two_behind(root);
+
+    let mut terminal = open(root);
+    terminal.press(" ");
+    terminal.wait_for("1picked");
+    terminal.press("\x03");
+    terminal.finish_ok();
+
+    assert!(!pulled(root, "alpha"));
+}
+
+#[test]
+fn a_clone_edited_while_the_screen_is_open_is_skipped() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     two_behind(root);
@@ -266,7 +374,7 @@ fn a_clone_edited_while_the_prompt_is_open_is_skipped() {
     let mut terminal = open(root);
     std::fs::write(root.join("alpha").join("README.md"), "edited meanwhile\n").unwrap();
     terminal.press(" ");
-    terminal.press("\r");
+    confirm(&mut terminal);
     let shown = plain(&terminal.finish());
 
     assert!(shown.contains("alpha:skipped:nowdirty"), "{shown}");
@@ -282,7 +390,7 @@ fn a_refused_fast_forward_is_reported_as_failed() {
     let mut terminal = open(root);
     std::fs::write(root.join("alpha").join("theirs.txt"), "my own notes\n").unwrap();
     terminal.press(" ");
-    terminal.press("\r");
+    confirm(&mut terminal);
     let shown = plain(&terminal.finish());
 
     assert!(shown.contains("alpha:failed:"), "{shown}");
@@ -290,6 +398,77 @@ fn a_refused_fast_forward_is_reported_as_failed() {
         std::fs::read_to_string(root.join("alpha").join("theirs.txt")).unwrap(),
         "my own notes\n"
     );
+}
+
+#[test]
+fn with_nothing_to_bring_in_the_groups_are_printed_and_nothing_is_asked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    clone_with_upstream(root, "current");
+
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_just-fetch"));
+    command.arg(root);
+    let shown = plain(&Terminal::spawn(command).finish_ok());
+
+    assert!(shown.contains("Canbringin(0)"), "{shown}");
+    assert!(
+        shown.contains("currentSameastheremote.Nothingtodo"),
+        "{shown}"
+    );
+    assert!(!shown.contains("0picked"), "{shown}");
+}
+
+#[test]
+fn clones_sharing_a_name_are_told_apart_by_their_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    let (work, personal) = (tmp.path().join("work"), tmp.path().join("personal"));
+    for folder in [&work, &personal] {
+        std::fs::create_dir(folder).unwrap();
+        clone_with_upstream(folder, "api");
+        push_file_from_elsewhere(folder, "api", "theirs.txt", "theirs\n");
+    }
+    clone_with_upstream(&work, "solo");
+    let tracked = Tracked {
+        folders: vec![work.clone(), personal.clone()],
+    };
+    save(&config.join("config.toml"), &tracked).unwrap();
+
+    let mut terminal = with_config(&config, &[]);
+    terminal.wait_for("Canbringin(2)");
+    terminal.press("q");
+    let shown = plain(&terminal.finish_ok());
+
+    assert!(shown.contains("work/api1newcommit"), "{shown}");
+    assert!(shown.contains("personal/api1newcommit"), "{shown}");
+    assert!(shown.contains("soloSameastheremote"), "{shown}");
+    assert!(!shown.contains("work/solo"), "{shown}");
+}
+
+#[test]
+fn a_list_taller_than_the_terminal_scrolls_with_f_and_b() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    clone_with_upstream(root, "aaa");
+    push_file_from_elsewhere(root, "aaa", "theirs.txt", "theirs\n");
+    for i in 0..45 {
+        common::empty_clone(root, &format!("n{i:02}"));
+    }
+
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_just-fetch"));
+    command.arg(root);
+    let mut terminal = Terminal::spawn(command);
+    terminal.wait_for("below(f)");
+    let before = plain(&terminal.text());
+    terminal.press("f");
+    terminal.wait_for("n44Noremotebranch");
+    terminal.wait_for("above(b)");
+    terminal.press("b");
+    terminal.wait_for_nth("Picktheclones", 2);
+    terminal.press("q");
+    terminal.finish_ok();
+
+    assert!(!before.contains("n44"), "{before}");
 }
 
 #[test]
@@ -358,7 +537,7 @@ fn with_nothing_tracked_a_run_at_a_terminal_starts_setup_and_then_covers_it() {
     terminal.press(&format!("{}\r", code.display()));
     terminal.wait_for("tracking");
     terminal.press("\r");
-    terminal.wait_for("betabehind1");
+    terminal.wait_for("Canbringin(2)");
     terminal.press("\x1b");
     terminal.finish();
 

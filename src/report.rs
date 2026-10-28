@@ -72,20 +72,23 @@ pub fn one_line(message: &str) -> String {
 /// How many conflicted files a row names before counting the rest.
 const CONFLICTS_SHOWN: usize = 5;
 
+/// The first conflicted files, each kept on one line, then how many more there are.
+pub fn conflict_list(files: &[String]) -> String {
+    let shown = files[..files.len().min(CONFLICTS_SHOWN)]
+        .iter()
+        .map(|name| name.replace('\n', "\\n"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match files.len().saturating_sub(CONFLICTS_SHOWN) {
+        0 => shown,
+        more => format!("{shown} (+{more} more)"),
+    }
+}
+
 fn foretell(prediction: &Prediction) -> String {
     match prediction {
         Prediction::Clean => "merges cleanly".to_string(),
-        Prediction::Conflicts(files) => {
-            let shown = files[..files.len().min(CONFLICTS_SHOWN)]
-                .iter()
-                .map(|name| name.replace('\n', "\\n"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            match files.len().saturating_sub(CONFLICTS_SHOWN) {
-                0 => format!("conflict: {shown}"),
-                more => format!("conflict: {shown} (+{more} more)"),
-            }
-        }
+        Prediction::Conflicts(files) => format!("conflict: {}", conflict_list(files)),
         Prediction::Unavailable(reason) => {
             format!("conflict check unavailable: {}", one_line(reason))
         }
