@@ -14,7 +14,7 @@ How a `v*` tag becomes a GitHub Release: `.github/workflows/release.yml`, modell
 ## Cutting one
 
 1. Bump `version` in `Cargo.toml` (and `Cargo.lock` with it) in a pull request, and merge it.
-2. Tag the merge commit with an annotated tag whose message is the release's summary for people who use just-fetch: what is new, and how to upgrade. `git tag -a v<version> -F <file>`.
+2. Tag the merge commit with an annotated tag whose message is the release's summary for people who use just-fetch: what is new, and how to upgrade. `git tag -a --cleanup=verbatim v<version> -F <file>`: without `--cleanup=verbatim`, git strips every line starting with `#` as a comment, which drops Markdown headings (it did at 0.3.0, whose notes were mended by hand with `gh release edit`).
 3. Push the tag. The tap and the bucket pick the release up on their next hourly `auto-update`, or at once when that workflow is started by hand. The bucket's `test-install` does not run on the bucket's own update commit, so it is started by hand to install the new version.
 
 ## What the package managers depend on
